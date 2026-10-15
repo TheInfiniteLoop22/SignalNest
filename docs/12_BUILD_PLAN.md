@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M7 (not started)
+CURRENT MILESTONE: M8 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -34,7 +34,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M4 | ✅ Done | 2026-10-15. 16 worker integration tests (AC1-lite, AC2, AC3, AC11, AC12 + fencing); `docker compose up --scale worker=2` demo: 31 runs / 31 distinct slots, then SIGKILL of the worker mid-`/hang` probe -> lease expired and monitor rescheduled, 48 / 48. ADR-019 |
 | M5 | ✅ Done | 2026-10-15. 219 tests total pass locally; state machine (23 cases incl. AC9), hints (14 cases), Faultline scenario tests for AC7/AC10 incl. backdated `opened_at` and event sequence. ADR-020 incl. the pause decision |
 | M6 | ✅ Done | 2026-10-15. 268 tests total pass locally (49 new: 40 API integration + 9 unit). Auth, monitor CRUD/pause/resume/check, runs (keyset), stats, incidents, run detail, probe test, problem+json, IDOR crawler (AC8), SSRF create-time rejection (AC6). ADR-021 |
-| M7–M10 | ⬜ Not started | |
+| M7 | ✅ Done | 2026-10-15. 44 Vitest tests, `tsc --noEmit` clean, `vite build` ok; live check against real API + worker + Faultline: outage -> incident in ~3 s with `H_5XX`, recovery -> resolved in ~3 s, `169.254.169.254` -> `blocked-target`. ADR-022 |
+| M8–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -85,6 +86,12 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M6 | OpenAPI "complete" is auto-generated; response examples not hand-written | Models are typed; examples can be added in M10 |
 | 2026-10-15 | M6 | Learner-owned keyset cursor/runs query and stats SQL written by Claude | Autonomous workflow |
 | 2026-10-15 | M6 | Seeded dev users from M1-M5 have an unusable `!` password hash until reseeded with the CLI | Auth needs a hash; reseed with `python -m app.cli seed --password ...` |
+| 2026-10-15 | M7 | System page not built | It needs `/api/v1/system/status` (heartbeats, lag, due count), which is an M8 deliverable; the page lands with it |
+| 2026-10-15 | M7 | Demo flow (`15` §4) verified through the API with a script, not by clicking | No browser automation yet (Playwright is M11); components and flows are covered by Vitest with mocked fetch |
+| 2026-10-15 | M7 | No Dockerised end-to-end run of the `web` build stage | The `Dockerfile` has the Node stage and `npm run build` passes locally; a full `docker compose build api` is checked in CI-less form only |
+| 2026-10-15 | M7 | Bundle ~700 kB, no code splitting | Recharts dominates; acceptable for an internal tool, noted in ADR-022 |
+| 2026-10-15 | M7 | Phase waterfall component written by Claude (learner-owned in plan) | Autonomous workflow |
+| 2026-10-15 | M7 | CI gained a `frontend` job (typecheck, tests, build) | Required by the testing plan's quality gates |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

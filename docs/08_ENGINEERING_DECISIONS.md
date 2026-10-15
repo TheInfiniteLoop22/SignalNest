@@ -164,3 +164,14 @@ stateDiagram-v2
 - **Interval floor:** `MIN_INTERVAL_S` (default 30) enforced in the API; the DB check only requires 1-3600 so tests can use short intervals.
 - **Docs UI:** `/api/docs` is controlled by `EXPOSE_DOCS`.
 
+## ADR-022 — Frontend implementation notes (M7)
+- **Stack as ADR-013:** React 18 + Vite + strict TypeScript, TanStack Query, React Router, React Hook Form + Zod, Recharts for the one line chart. No component library; plain CSS with custom properties and a dark-mode media query. Versions are pinned exactly in `package.json`.
+- **Same origin everywhere.** Dev: Vite proxies `/api` to the API so the session cookie behaves as in production. Prod: the API image serves the built SPA (`STATIC_DIR`) with an `index.html` fallback; unknown `/api/*` paths stay JSON 404s and path traversal out of the static root is refused (tested).
+- **Security headers** (CSP `default-src 'self'`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`) are added by a middleware on every response. `style-src 'unsafe-inline'` is allowed because Recharts sets style attributes; scripts are same-origin only.
+- **Data flow:** Postgres `check_runs` -> `GET /runs/{id}` (timings + attempts) -> `Waterfall` -> `computeWaterfall()` (pure) -> divs positioned by percentage. Every number is repeated in a text table, so nothing depends on colour or bar width.
+- **Safe rendering:** response snippets are rendered as a React text node inside `<pre>`; there is no `dangerouslySetInnerHTML` anywhere (a test feeds `<img onerror>` and `<script>` and asserts they stay text).
+- **Polling, not push:** monitor list/detail and incidents refetch every 10 s (`LIVE_REFETCH_MS`), stats every 30 s; TanStack Query dedupes identical keys and keeps previous data while refetching.
+- **401 mid-session:** the API client dispatches a `session-expired` event for any 401 outside the auth probes; `App` clears cached data, nulls the user and `RequireAuth` redirects to `/login`, which shows "Your session expired". Tested.
+- **Form validation** mirrors the server rules for instant feedback; server errors (field errors, 409 duplicate, `blocked-target`) are mapped back onto fields. The server remains authoritative.
+- **Known limits:** the JS bundle is ~700 kB (205 kB gzip), mostly Recharts, with no code splitting; no frontend e2e (Playwright is M11); the System page needs the M8 endpoint.
+

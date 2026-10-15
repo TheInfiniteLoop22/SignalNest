@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 168
     cookie_secure: bool = False  # set true behind HTTPS (prod)
     expose_docs: bool = True
+    static_dir: str = ""  # built SPA; empty disables static serving (dev uses Vite)
 
     # limits
     max_monitors_per_user: int = 50
