@@ -165,6 +165,4 @@ class Resolver(Protocol):
     async def resolve(self, host: str, timeout_s: float) -> list[str]: ...
 
 
-# A policy returns True when connecting to the IP is allowed. M3 replaces the default.
-TargetPolicy = Callable[[str], bool]
 Sleeper = Callable[[float], Awaitable[None]]

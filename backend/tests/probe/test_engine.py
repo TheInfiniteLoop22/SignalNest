@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import ssl
 from typing import Any
 
@@ -12,7 +13,8 @@ from faultline.socket_faults import (
     start_tls_server,
 )
 
-from app.probe.engine import run_probe
+from app.probe.engine import run_probe as _run_probe
+from app.probe.ssrf import SsrfPolicy
 from app.probe.types import (
     DnsNameNotFound,
     DnsTimeout,
@@ -20,10 +22,24 @@ from app.probe.types import (
     JsonEquals,
     Outcome,
     ProbeRequest,
+    ProbeResult,
     StatusIn,
 )
 
 F = FailureClass
+
+# Tests talk to localhost on ephemeral ports; the default policy would (rightly) refuse.
+LOCAL_POLICY = SsrfPolicy(
+    allowed_ports=None,
+    allow_private_cidrs=(ipaddress.ip_network("127.0.0.0/8"),),
+)
+
+
+async def run_probe(request: ProbeRequest, **kw: Any) -> ProbeResult:
+    kw.setdefault("policy", LOCAL_POLICY)
+    return await _run_probe(request, **kw)
+
+
 FAST: dict[str, Any] = {"retry_delay_s": 0.0}
 
 
@@ -203,9 +219,9 @@ async def test_pass_on_retry_keeps_both_attempts(faultline: str) -> None:
     assert r.final.dns_ms is not None
 
 
-async def test_policy_block_is_inconclusive_and_sends_nothing() -> None:
+async def test_private_resolution_is_inconclusive_and_sends_nothing() -> None:
     res = FakeResolver(ips=["10.0.0.5"])
-    r = await run_probe(req("http://internal.test/"), resolver=res, policy=lambda ip: False)
+    r = await run_probe(req("http://internal.test/"), resolver=res, policy=SsrfPolicy())
     assert r.outcome is Outcome.INCONCLUSIVE
     assert r.failure_class is F.BLOCKED_BY_POLICY
     assert r.final.http_status is None

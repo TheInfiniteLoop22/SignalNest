@@ -115,3 +115,11 @@ stateDiagram-v2
   - On Windows a refused loopback connect takes about 2 s to be reported (SYN retries), so the CONNECTION_REFUSED test uses a 5 s budget.
 - **Connect-timeout testing (ADR-015 question):** a transport seam that never returns, not a non-routable address. The classification of a real `httpx.ConnectTimeout` is covered by a unit test.
 
+## ADR-018 — SSRF guard implementation notes (M3)
+- **Decision:** `app/probe/ssrf.py` holds an `SsrfPolicy` (ports, dev CIDR override, dev host allow-list) with two operations: `validate_url` (static; `TargetError` for malformed, `BlockedTarget` for denied) and `allows_ip`. The engine resolves, requires `allows_ip` for **every** answer, then connects to one validated IP with `Host` and `sni_hostname` set to the original name. The default policy is strict; localhost-style tests opt in with an explicit `allow_private_cidrs`.
+- **IPv6 embedding IPv4:** `::ffff:a.b.c.d`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16` are unwrapped and judged as the embedded IPv4. Teredo, local-use NAT64, `::/96`, discard and ULA ranges are rejected outright.
+- **Numeric hosts:** a hostname whose last label is purely numeric or `0x..` is rejected rather than parsed (`2130706433`, `0x7f.1`, `017700000001`, `127.1`); real DNS names never end in a numeric label.
+- **Spike result:** TLS verification works against the original hostname while connecting by IP (`sni_hostname` drives both SNI and certificate hostname checks): a cert for the right name passes, a cert for another name gives `TLS_CERT_INVALID`.
+- **Residual risk:** a hostname that is on `ALLOWED_HOSTS` or covered by `SSRF_ALLOW_PRIVATE_CIDRS` bypasses the guard by design (dev only; the app logs a warning). The guard does not defend against a public IP that itself proxies to private space.
+- **Static HTTP-client rule:** a unit test fails if `httpx` is imported anywhere under `app/` outside `app/probe/`.
+

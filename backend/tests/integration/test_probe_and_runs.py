@@ -1,3 +1,4 @@
+import ipaddress
 from collections.abc import AsyncIterator
 
 import httpx
@@ -8,9 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Monitor, User
 from app.db.session import get_session
 from app.main import create_app
+from app.probe.ssrf import SsrfPolicy
 from app.services.probe_once import probe_monitor
 
 pytestmark = pytest.mark.integration
+
+LOCAL = SsrfPolicy(allowed_ports=None, allow_private_cidrs=(ipaddress.ip_network("127.0.0.0/8"),))
 
 
 class FixedResolver:
@@ -44,6 +48,7 @@ async def test_probe_three_times_and_list_via_api(
             monitor.id,
             worker_id="test",
             resolver=FixedResolver(["127.0.0.1"]),
+            policy=LOCAL,
             transport=transport,
         )
         assert run.outcome == "PASS"
@@ -80,6 +85,7 @@ async def test_unreachable_target_is_recorded_as_fail(
         monitor.id,
         worker_id="test",
         resolver=FixedResolver(["127.0.0.1"]),
+        policy=LOCAL,
         transport=httpx.MockTransport(refused),
     )
     assert run.outcome == "FAIL"

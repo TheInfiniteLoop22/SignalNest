@@ -6,21 +6,21 @@ the scheduler (M4) will split it into claim / execute / complete.
 
 import dataclasses
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db.models import CheckRun, Monitor, MonitorState
 from app.probe.engine import run_probe
+from app.probe.ssrf import SsrfPolicy
 from app.probe.types import (
     Outcome,
     ProbeRequest,
     ProbeResult,
     Resolver,
-    TargetPolicy,
     assertion_list_adapter,
 )
 
@@ -44,8 +44,8 @@ async def probe_monitor(
     *,
     worker_id: str,
     resolver: Resolver | None = None,
-    policy: TargetPolicy | None = None,
-    transport: httpx.AsyncBaseTransport | None = None,
+    policy: SsrfPolicy | None = None,
+    transport: Any = None,
 ) -> tuple[CheckRun, ProbeResult]:
     monitor = await session.get(Monitor, monitor_id)
     if monitor is None:
@@ -59,17 +59,29 @@ async def probe_monitor(
         assertions=assertion_list_adapter.validate_python(monitor.assertions),
         degraded_ms=monitor.degraded_ms,
     )
-    kwargs: dict[str, Any] = {"resolver": resolver, "transport": transport}
-    if policy is not None:
-        kwargs["policy"] = policy
+    if policy is None:
+        cfg = get_settings()
+        policy = SsrfPolicy.from_settings(
+            cfg.allowed_ports, cfg.ssrf_allow_private_cidrs, cfg.allowed_hosts
+        )
+    kwargs: dict[str, Any] = {"resolver": resolver, "transport": transport, "policy": policy}
 
     started_at = datetime.now(UTC)
     result = await run_probe(request, **kwargs)
     final = result.final
 
+    # No scheduler yet (M4): a manual run's slot is its start time, nudged past the latest
+    # existing slot because UNIQUE(monitor_id, scheduled_for) and coarse clocks can collide.
+    latest = await session.scalar(
+        select(func.max(CheckRun.scheduled_for)).where(CheckRun.monitor_id == monitor_id)
+    )
+    slot = (
+        started_at if latest is None or latest < started_at else latest + timedelta(microseconds=1)
+    )
+
     run = CheckRun(
         monitor_id=monitor_id,
-        scheduled_for=started_at,  # no scheduler yet (M4): slot == start time
+        scheduled_for=slot,
         started_at=started_at,
         finished_at=datetime.now(UTC),
         outcome=result.outcome.value,

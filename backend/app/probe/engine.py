@@ -1,22 +1,23 @@
 """Probe engine: ProbeRequest -> ProbeResult. Does no database I/O.
 
-M2 scope: resolve, pin the connection to the resolved IP, phase timings via httpcore trace
-hooks, failure classification, assertions, one retry. The SSRF policy (M3) plugs into
-`policy`; until then the default allows everything.
+Resolve, validate every address against the SSRF policy, pin the connection to one
+validated IP, phase timings via httpcore trace hooks, failure classification, assertions,
+one retry. The default policy is strict; tests/dev opt in to private ranges explicitly.
 """
 
 import asyncio
 import ipaddress
 import socket
+import ssl
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from urllib.parse import urlsplit
 
 import httpx
 
 from app.probe import assertions as asserts
 from app.probe.classify import classify_exception
+from app.probe.ssrf import BlockedTarget, SsrfPolicy, TargetError
 from app.probe.types import (
     INCONCLUSIVE_CLASSES,
     RETRYABLE_CLASSES,
@@ -31,7 +32,6 @@ from app.probe.types import (
     Resolver,
     Sleeper,
     StatusIn,
-    TargetPolicy,
 )
 
 BODY_CAP = 64 * 1024
@@ -73,10 +73,6 @@ class SystemResolver:
         if not ips:
             raise DnsNameNotFound(host)
         return ips
-
-
-def allow_all(_ip: str) -> bool:
-    return True
 
 
 @dataclass
@@ -133,8 +129,9 @@ async def _attempt(
     req: ProbeRequest,
     *,
     resolver: Resolver,
-    policy: TargetPolicy,
+    policy: SsrfPolicy,
     transport: httpx.AsyncBaseTransport | None,
+    ssl_context: ssl.SSLContext | None,
 ) -> tuple[AttemptResult, _Body]:
     started_at = datetime.now(UTC)
     t0 = time.monotonic()
@@ -150,14 +147,12 @@ async def _attempt(
         return round((time.monotonic() - t0) * 1000)
 
     try:
-        parts = urlsplit(req.url)
-        host = parts.hostname
-        if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
-            raise _InvalidTarget(req.url)
+        target = policy.validate_url(req.url)  # raises TargetError / BlockedTarget
+        host, parts = target.host, target.parts
 
         async with asyncio.timeout(budget):
             # 1. resolve
-            if _is_ip(host):
+            if target.is_ip_literal:
                 ips = [host]
             else:
                 timings.phase = Phase.DNS
@@ -166,9 +161,10 @@ async def _attempt(
                 dns_ms = round((time.monotonic() - t_dns) * 1000)
                 timings.phase = Phase.CONNECT
 
-            # 2. policy: reject if ANY resolved address is denied
-            if not all(policy(ip) for ip in ips):
-                raise _Blocked(host)
+            # 2. policy: reject if ANY resolved address is denied (re-checked every attempt,
+            #    which is what defeats DNS rebinding between create time and probe time)
+            if not all(policy.allows_ip(ip) for ip in ips):
+                raise BlockedTarget(host)
 
             # 3. pin to one validated IP; Host header + SNI keep the hostname semantics
             resolved_ip = _pick_ip(ips)
@@ -176,7 +172,8 @@ async def _attempt(
             port = f":{parts.port}" if parts.port else ""
             pinned = parts._replace(netloc=f"{ip_literal}{port}").geturl()
             headers = {k: v for k, v in req.headers.items() if k.lower() != "host"}
-            headers["Host"] = parts.netloc.rsplit("@", 1)[-1]
+            host_header = f"[{host}]" if ":" in host else host
+            headers["Host"] = f"{host_header}{port}"
 
             limits = httpx.Limits(max_keepalive_connections=0)
             tmo = httpx.Timeout(budget)
@@ -186,6 +183,7 @@ async def _attempt(
                 limits=limits,
                 follow_redirects=False,
                 trust_env=False,
+                verify=ssl_context if ssl_context is not None else True,
             ) as client:
                 async with client.stream(
                     req.method,
@@ -211,10 +209,10 @@ async def _attempt(
                         chunks.append(chunk)
                         size += len(chunk)
                     body.data = b"".join(chunks)
-    except _InvalidTarget:
-        error_class, detail = FailureClass.INVALID_TARGET, "URL failed validation"
-    except _Blocked:
-        error_class, detail = FailureClass.BLOCKED_BY_POLICY, "target address denied by policy"
+    except TargetError as exc:
+        error_class, detail = FailureClass.INVALID_TARGET, str(exc)[:200]
+    except BlockedTarget as exc:
+        error_class, detail = FailureClass.BLOCKED_BY_POLICY, f"denied by policy: {exc}"[:200]
     except Exception as exc:  # classify decides; unknown -> PROBE_INTERNAL_ERROR
         error_class = classify_exception(exc, timings.phase)
         detail = f"{type(exc).__name__}: {exc}"[:500]
@@ -240,31 +238,29 @@ async def _attempt(
     return result, body
 
 
-class _InvalidTarget(Exception):
-    pass
-
-
-class _Blocked(Exception):
-    pass
-
-
 async def run_probe(
     req: ProbeRequest,
     *,
     resolver: Resolver | None = None,
-    policy: TargetPolicy = allow_all,
+    policy: SsrfPolicy | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    ssl_context: ssl.SSLContext | None = None,
     sleep: Sleeper = asyncio.sleep,
     retry_delay_s: float = 1.0,
 ) -> ProbeResult:
     resolver = resolver or SystemResolver()
+    policy = policy or SsrfPolicy()  # strict by default
     attempts: list[AttemptResult] = []
 
-    attempt, body = await _attempt(req, resolver=resolver, policy=policy, transport=transport)
+    attempt, body = await _attempt(
+        req, resolver=resolver, policy=policy, transport=transport, ssl_context=ssl_context
+    )
     attempts.append(attempt)
     if attempt.error_class in RETRYABLE_CLASSES:
         await sleep(retry_delay_s)
-        attempt, body = await _attempt(req, resolver=resolver, policy=policy, transport=transport)
+        attempt, body = await _attempt(
+            req, resolver=resolver, policy=policy, transport=transport, ssl_context=ssl_context
+        )
         attempts.append(attempt)
 
     final = attempts[-1]

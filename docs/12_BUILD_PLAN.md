@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M3 (not started)
+CURRENT MILESTONE: M4 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -30,7 +30,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M0 | ✅ Done | Scaffolding + CI green 2026-10-15; checkpoint quiz skipped (see deviations) |
 | M1 | ✅ Done | 2026-10-15. 4 tests (1 unit, 3 integration) pass locally; CI has a Postgres service job. CLI run 3x -> API listed 3 runs newest-first |
 | M2 | ✅ Done | 2026-10-15. 22 engine tests against real sockets + 37 unit tests; `mypy --strict app/probe` clean. ADR-017 written |
-| M3–M10 | ⬜ Not started | |
+| M3 | ✅ Done | 2026-10-15. ~55-case IP table + 28 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
+| M4–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -58,6 +59,10 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M2 | `UNCLASSIFIED_ERROR` removed; unknown exceptions -> `PROBE_INTERNAL_ERROR` (INCONCLUSIVE) | Per spec: never blame the target for our bug |
 | 2026-10-15 | M2 | Learner-owned `classify.py` / `assertions.py` written by Claude | Autonomous workflow |
 | 2026-10-15 | M2 | Not done: Wireshark lab, TLS-wrong-hostname test | Lab is manual learning; hostname-mismatch needs the M3 pinning spike (trustme CA injected) |
+| 2026-10-15 | M3 | `TargetPolicy` callable replaced by `SsrfPolicy` object (validate_url + allows_ip); engine default is strict | A callable could not express URL/port/hostname rules; strict default means forgetting to configure fails closed |
+| 2026-10-15 | M3 | Hostname rules return `BLOCKED_BY_POLICY` (INCONCLUSIVE), malformed URLs `INVALID_TARGET` (FAIL) | Policy denial is not evidence about the target (ADR-009); malformed config is |
+| 2026-10-15 | M3 | Manual runs nudge `scheduled_for` past the latest slot | Unique slot key collided on coarse Windows clock; replaced by the real scheduler in M4 |
+| 2026-10-15 | M3 | M1/M2 tests now pass an explicit loopback policy | The strict default correctly refuses 127.0.0.1 |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 
