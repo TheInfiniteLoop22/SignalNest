@@ -1,10 +1,10 @@
 """Shared FastAPI dependencies: current user, DB session, SSRF policy, resolver."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Request
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import Problem
@@ -26,25 +26,13 @@ async def current_user(request: Request, session: DbSession) -> User:
     token = request.cookies.get(COOKIE)
     if not token:
         raise Problem(401, "unauthenticated", "authentication required")
-    now = datetime.now(UTC)
-    row = (
-        await session.execute(
-            select(Session, User)
-            .join(User, User.id == Session.user_id)
-            .where(
-                Session.token_hash == token_hash(token),
-                Session.revoked_at.is_(None),
-                Session.expires_at > now,
-            )
-        )
-    ).first()
-    if row is None:
+    user = await session.scalar(
+        select(User)
+        .join(Session, Session.user_id == User.id)
+        .where(Session.token_hash == token_hash(token), Session.expires_at > datetime.now(UTC))
+    )
+    if user is None:
         raise Problem(401, "unauthenticated", "authentication required")
-    sess, user = row
-    # Touch last_seen at most once a minute to avoid a write per request.
-    if sess.last_seen_at is None or now - sess.last_seen_at > timedelta(minutes=1):
-        await session.execute(update(Session).where(Session.id == sess.id).values(last_seen_at=now))
-        await session.commit()
     return user
 
 

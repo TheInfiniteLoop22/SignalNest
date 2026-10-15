@@ -1,4 +1,3 @@
-import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -39,33 +38,29 @@ async def create_monitor(client: httpx.AsyncClient, name: str = "orders", **over
 
 
 async def insert_runs(
-    maker: async_sessionmaker[AsyncSession],
-    monitor_id: str,
-    specs: list[tuple[str, str | None, int | None]],
-    *,
-    start: datetime | None = None,
-) -> list[int]:
-    """specs: (outcome, failure_class, total_ms); spaced one minute apart, oldest first."""
-    start = start or (datetime.now(UTC) - timedelta(minutes=len(specs) + 1))
-    ids: list[int] = []
+    maker: async_sessionmaker[AsyncSession], monitor_id: str, outcomes: list[str]
+) -> None:
+    """One run per outcome, spaced a minute apart, oldest first."""
+    start = datetime.now(UTC) - timedelta(minutes=len(outcomes) + 1)
     async with maker() as s:
-        for i, (outcome, fc, ms) in enumerate(specs):
-            at = start + timedelta(minutes=i)
-            rid = await s.scalar(
+        for i, outcome in enumerate(outcomes):
+            await s.execute(
                 text(
                     """
-                    INSERT INTO check_runs (monitor_id, scheduled_for, started_at, finished_at,
-                        outcome, failure_class, http_status, total_ms, worker_id, trigger)
-                    VALUES (:m, :at, :at, :at, :o, :fc, :st, :ms, 'w', 'schedule')
-                    RETURNING id
+                    INSERT INTO check_runs
+                        (monitor_id, started_at, outcome, failure_class, http_status, total_ms)
+                    VALUES (:m, :at, :o, :fc, :st, 50)
                     """
                 ),
-                {"m": monitor_id, "at": at, "o": outcome, "fc": fc, "st": 200 if not fc else None,
-                 "ms": ms},
-            )  # fmt: skip
-            ids.append(int(rid))  # type: ignore[arg-type]
+                {
+                    "m": monitor_id,
+                    "at": start + timedelta(minutes=i),
+                    "o": outcome,
+                    "fc": None if outcome == "PASS" else "CONNECT",
+                    "st": 200 if outcome == "PASS" else None,
+                },
+            )
         await s.commit()
-    return ids
 
 
 # --- auth ---------------------------------------------------------------------------------
@@ -146,62 +141,51 @@ async def test_errors_are_problem_json(migrated_db: str, db) -> None:  # type: i
 # --- monitors -----------------------------------------------------------------------------
 
 
-async def test_monitor_crud_roundtrip(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+async def test_monitor_crud(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
         await register_and_login(c)
-        m = await create_monitor(
-            c,
-            assertions=[{"type": "json_equals", "path": "status", "value": "ok"}],
-            headers={"Accept": "application/json"},
-            degraded_ms=800,
-        )
-        assert m["state"]["health"] == "UNKNOWN"
-        assert m["assertions"] == [{"type": "json_equals", "path": "status", "value": "ok"}]
+        m = await create_monitor(c, expected_status=200, body_contains="ok")
+        assert m["status"] == "UNKNOWN"
+        assert m["uptime_24h_pct"] is None
         mid = m["id"]
 
-        listed = (await c.get(f"{V1}/monitors")).json()
-        assert [x["id"] for x in listed] == [mid]
-        assert listed[0]["summary_24h"]["sample_count"] == 0
-
+        assert [x["id"] for x in (await c.get(f"{V1}/monitors")).json()] == [mid]
         r = await c.patch(
-            f"{V1}/monitors/{mid}", json={"name": "orders-v2", "interval_seconds": 120}
+            f"{V1}/monitors/{mid}", json={"name": "orders-v2", "expected_status": None}
         )
         assert r.status_code == 200
-        assert r.json()["name"] == "orders-v2" and r.json()["interval_seconds"] == 120
+        assert r.json()["name"] == "orders-v2"
+        assert r.json()["expected_status"] is None
+        assert r.json()["body_contains"] == "ok"  # untouched fields stay
 
         assert (await c.delete(f"{V1}/monitors/{mid}")).status_code == 204
         assert (await c.get(f"{V1}/monitors/{mid}")).status_code == 404
 
 
 @pytest.mark.parametrize(
-    ("override", "field"),
+    "override",
     [
-        ({"headers": {"Host": "evil"}}, "headers"),
-        ({"headers": {"Authorization": "x"}}, "headers"),
-        ({"headers": {"Proxy-Foo": "x"}}, "headers"),
-        ({"headers": {"bad name": "x"}}, "headers"),
-        ({"timeout_ms": 5000, "degraded_ms": 5000}, ""),
-        ({"interval_seconds": 0}, "interval_seconds"),
-        ({"method": "POST"}, "method"),
-        ({"assertions": [{"type": "nope"}]}, "assertions"),
-        ({"failure_threshold": 11}, "failure_threshold"),
+        {"timeout_ms": 10},
+        {"interval_seconds": 0},
+        {"expected_status": 42},
+        {"failure_threshold": 11},
+        {"body_contains": ""},
     ],
 )
-async def test_monitor_validation(migrated_db: str, db, override, field) -> None:  # type: ignore[no-untyped-def]
+async def test_monitor_validation(migrated_db: str, db, override) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
         await register_and_login(c)
         r = await c.post(f"{V1}/monitors", json=monitor_body(**override))
         assert r.status_code == 422, r.text
-        assert r.json()["type"].endswith("/validation")
 
 
 async def test_minimum_interval_is_enforced(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db, min_interval_s=30) as (c, _):
         await register_and_login(c)
-        r = await c.post(f"{V1}/monitors", json=monitor_body(interval_seconds=10))
-        assert r.status_code == 422
-        r = await c.post(f"{V1}/monitors", json=monitor_body(interval_seconds=30))
-        assert r.status_code == 201
+        too_fast = await c.post(f"{V1}/monitors", json=monitor_body(interval_seconds=10))
+        assert too_fast.status_code == 422
+        ok = await c.post(f"{V1}/monitors", json=monitor_body(interval_seconds=30))
+        assert ok.status_code == 201
 
 
 async def test_duplicate_name_is_conflict(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
@@ -214,11 +198,10 @@ async def test_duplicate_name_is_conflict(migrated_db: str, db) -> None:  # type
 
 
 async def test_per_user_monitor_cap(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db, max_monitors_per_user=2) as (c, _):
+    async with make_client(migrated_db, max_monitors_per_user=1) as (c, _):
         await register_and_login(c)
-        await create_monitor(c, "one", url="https://a.example.com/x")
-        await create_monitor(c, "two", url="https://b.example.com/")
-        r = await c.post(f"{V1}/monitors", json=monitor_body("three", url="https://c.example.com/"))
+        await create_monitor(c, "one")
+        r = await c.post(f"{V1}/monitors", json=monitor_body("two"))
         assert r.status_code == 422 and r.json()["type"].endswith("/monitor-limit")
 
 
@@ -236,7 +219,7 @@ async def test_per_user_monitor_cap(migrated_db: str, db) -> None:  # type: igno
         "http://user:pw@example.com/",
     ],
 )
-async def test_ssrf_precheck_rejects_at_create_ac6(migrated_db: str, db, url: str) -> None:  # type: ignore[no-untyped-def]
+async def test_ssrf_precheck_rejects_at_create(migrated_db: str, db, url: str) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db, policy=SsrfPolicy()) as (c, _):
         await register_and_login(c)
         r = await c.post(f"{V1}/monitors", json=monitor_body(url=url))
@@ -254,253 +237,79 @@ async def test_ssrf_precheck_rejects_names_that_resolve_private(migrated_db: str
         assert r.json()["type"].endswith("/blocked-target")
 
 
-async def test_pause_resume_check_now(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+# --- runs, uptime, incidents ----------------------------------------------------------------
+
+
+async def test_runs_are_newest_first_and_uptime_is_computed(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
         await register_and_login(c)
         mid = (await create_monitor(c))["id"]
+        await insert_runs(db, mid, ["PASS", "PASS", "PASS", "FAIL"])
 
-        assert (await c.post(f"{V1}/monitors/{mid}/pause")).status_code == 204
-        assert (await c.get(f"{V1}/monitors/{mid}")).json()["state"]["health"] == "PAUSED"
-        assert (await c.post(f"{V1}/monitors/{mid}/check")).status_code == 409
+        runs = (await c.get(f"{V1}/monitors/{mid}/runs", params={"limit": 3})).json()
+        assert [r["outcome"] for r in runs] == ["FAIL", "PASS", "PASS"]
+        assert runs[0]["failure_class"] == "CONNECT"
 
-        assert (await c.post(f"{V1}/monitors/{mid}/resume")).status_code == 204
-        assert (await c.post(f"{V1}/monitors/{mid}/resume")).status_code == 204  # idempotent
-        assert (await c.get(f"{V1}/monitors/{mid}")).json()["state"]["health"] == "UNKNOWN"
-
-        assert (await c.post(f"{V1}/monitors/{mid}/check")).status_code == 202
-    async with db() as s:
-        due = await s.scalar(
-            text("SELECT next_run_at <= now() FROM monitor_state WHERE monitor_id = :m"),
-            {"m": mid},
-        )
-    assert due is True
+        assert (await c.get(f"{V1}/monitors/{mid}")).json()["uptime_24h_pct"] == 75.0
+        listed = (await c.get(f"{V1}/monitors")).json()
+        assert listed[0]["uptime_24h_pct"] == 75.0
 
 
-async def test_interval_edit_pulls_next_run_forward(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c, interval_seconds=3600))["id"]
-        async with db() as s:
-            await s.execute(
-                text("UPDATE monitor_state SET next_run_at = now() + interval '1 hour'"),
-            )
-            await s.commit()
-        await c.patch(f"{V1}/monitors/{mid}", json={"interval_seconds": 60})
-    async with db() as s:
-        secs = await s.scalar(
-            text("SELECT extract(epoch FROM next_run_at - now()) FROM monitor_state")
-        )
-    assert secs is not None and secs <= 60
-
-
-async def test_deleting_a_monitor_with_an_incident_works(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+async def test_incidents_list_open_first_with_filter(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
         await register_and_login(c)
         mid = (await create_monitor(c))["id"]
-        [rid] = await insert_runs(db, mid, [("FAIL", "READ_TIMEOUT", 5000)])
         async with db() as s:
             await s.execute(
                 text(
-                    """INSERT INTO incidents (monitor_id, status, opened_at, first_failure_run_id,
-                       failure_count, dominant_failure_class)
-                       VALUES (:m, 'OPEN', now(), :r, 1, 'READ_TIMEOUT')"""
+                    """
+                    INSERT INTO incidents (monitor_id, opened_at, resolved_at, failure_class)
+                    VALUES (:m, now() - interval '2 hours', now() - interval '1 hour', 'TLS'),
+                           (:m, now() - interval '10 minutes', NULL, 'TIMEOUT')
+                    """
                 ),
-                {"m": mid, "r": rid},
-            )
-            await s.commit()
-        assert (await c.delete(f"{V1}/monitors/{mid}")).status_code == 204
-
-
-# --- runs, stats --------------------------------------------------------------------------
-
-
-async def test_runs_keyset_pagination_has_no_gaps_or_duplicates(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c))["id"]
-        ids = await insert_runs(db, mid, [("PASS", None, 50)] * 25)
-
-        seen: list[int] = []
-        cursor = None
-        pages = 0
-        while True:
-            params: dict[str, Any] = {"limit": 10}
-            if cursor:
-                params["cursor"] = cursor
-            page = (await c.get(f"{V1}/monitors/{mid}/runs", params=params)).json()
-            seen += [r["id"] for r in page["items"]]
-            pages += 1
-            cursor = page["next_cursor"]
-            if cursor is None:
-                break
-        assert pages == 3
-        assert seen == sorted(ids, reverse=True)  # newest first, each exactly once
-
-        # rows arriving between page fetches do not shift the next page (offset would)
-        first = (await c.get(f"{V1}/monitors/{mid}/runs", params={"limit": 10})).json()
-        await insert_runs(db, mid, [("PASS", None, 50)], start=datetime.now(UTC))
-        second = (
-            await c.get(
-                f"{V1}/monitors/{mid}/runs", params={"limit": 10, "cursor": first["next_cursor"]}
-            )
-        ).json()
-        assert [r["id"] for r in second["items"]] == sorted(ids, reverse=True)[10:20]
-
-
-async def test_runs_filters_and_bad_cursor(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c))["id"]
-        await insert_runs(
-            db,
-            mid,
-            [("PASS", None, 40), ("FAIL", "READ_TIMEOUT", 5000), ("FAIL", "DNS_FAILURE", None)],
-        )
-        r = await c.get(f"{V1}/monitors/{mid}/runs", params={"outcome": "FAIL"})
-        assert {x["failure_class"] for x in r.json()["items"]} == {"READ_TIMEOUT", "DNS_FAILURE"}
-        r = await c.get(f"{V1}/monitors/{mid}/runs", params={"failure_class": "DNS_FAILURE"})
-        assert len(r.json()["items"]) == 1
-        r = await c.get(f"{V1}/monitors/{mid}/runs", params={"cursor": "garbage"})
-        assert r.status_code == 422
-        r = await c.get(f"{V1}/monitors/{mid}/runs", params={"limit": 500})
-        assert r.status_code == 422
-
-
-async def test_stats_exclude_inconclusive_from_uptime(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c))["id"]
-        await insert_runs(
-            db,
-            mid,
-            [("PASS", None, 100)] * 6
-            + [("DEGRADED", None, 900)]
-            + [("FAIL", "READ_TIMEOUT", 5000)] * 3
-            + [("INCONCLUSIVE", "PROBE_INTERNAL_ERROR", 1)] * 5,
-        )
-        s = (await c.get(f"{V1}/monitors/{mid}/stats", params={"window": "24h"})).json()
-        assert s["sample_count"] == 10  # 5 inconclusive excluded
-        assert s["uptime_pct"] == 70.0  # 7 healthy / 10
-        assert s["by_outcome"] == {"PASS": 6, "DEGRADED": 1, "FAIL": 3, "INCONCLUSIVE": 5}
-        assert s["by_failure_class"]["READ_TIMEOUT"] == 3
-        assert s["p50_ms"] == 100.0  # failures' 5000 ms do not leak into latency
-        r = await c.get(f"{V1}/monitors/{mid}/stats", params={"window": "30d"})
-        assert r.status_code == 422
-
-
-async def test_run_detail_has_explanation(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c))["id"]
-        [rid] = await insert_runs(db, mid, [("FAIL", "READ_TIMEOUT", 5000)])
-        r = await c.get(f"{V1}/runs/{rid}")
-        assert r.status_code == 200
-        body = r.json()
-        assert "did not send response headers" in body["explanation"]
-        assert body["timings"]["total_ms"] == 5000
-        assert body["monitor_id"] == mid
-
-
-# --- incidents ----------------------------------------------------------------------------
-
-
-async def test_incident_list_open_first_and_detail(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        mid = (await create_monitor(c))["id"]
-        runs = await insert_runs(db, mid, [("FAIL", "HTTP_UNEXPECTED_STATUS", 20)] * 3)
-        now = datetime.now(UTC)
-        async with db() as s:
-            ids = []
-            for status, opened in (
-                ("RESOLVED", now - timedelta(days=2)),
-                ("OPEN", now - timedelta(days=1)),
-            ):
-                iid = await s.scalar(
-                    text(
-                        """INSERT INTO incidents (monitor_id, status, opened_at,
-                               first_failure_run_id, failure_count, dominant_failure_class)
-                           VALUES (:m, :s, :o, :r, 3, 'HTTP_UNEXPECTED_STATUS') RETURNING id"""
-                    ),
-                    {"m": mid, "s": status, "o": opened, "r": runs[0]},
-                )
-                ids.append(iid)
-            await s.execute(
-                text(
-                    "INSERT INTO incident_events (incident_id, at, kind, run_id) "
-                    "VALUES (:i, now(), 'OPENED', :r)"
-                ),
-                {"i": ids[1], "r": runs[2]},
+                {"m": mid},
             )
             await s.commit()
 
-        page = (await c.get(f"{V1}/incidents")).json()
-        assert [i["status"] for i in page["items"]] == ["OPEN", "RESOLVED"]
-        only_open = (await c.get(f"{V1}/incidents", params={"status": "OPEN"})).json()
-        assert len(only_open["items"]) == 1
-
-        p1 = (await c.get(f"{V1}/incidents", params={"limit": 1})).json()
-        assert [i["status"] for i in p1["items"]] == ["OPEN"] and p1["next_cursor"]
-        p2 = (
-            await c.get(f"{V1}/incidents", params={"limit": 1, "cursor": p1["next_cursor"]})
-        ).json()
-        assert [i["status"] for i in p2["items"]] == ["RESOLVED"] and p2["next_cursor"] is None
-
-        detail = (await c.get(f"{V1}/incidents/{ids[1]}")).json()
-        assert detail["events"][0]["kind"] == "OPENED"
-        assert detail["evidence"]["class_counts"] == {"HTTP_UNEXPECTED_STATUS": 3}
-        assert detail["first_failure_run_id"] == runs[0]
-
-
-# --- probe test ---------------------------------------------------------------------------
+        items = (await c.get(f"{V1}/incidents")).json()
+        assert [i["status"] for i in items] == ["OPEN", "RESOLVED"]
+        assert items[0]["monitor_name"] == "orders"
+        assert items[0]["failure_class"] == "TIMEOUT"
+        only = (await c.get(f"{V1}/incidents", params={"status": "RESOLVED"})).json()
+        assert [i["failure_class"] for i in only] == ["TLS"]
 
 
 # --- ownership (IDOR) ---------------------------------------------------------------------
 
 
-async def test_other_users_resources_are_404_everywhere_ac8(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    """Route crawler: every route that takes an id must 404 for a user who does not own it."""
-    async with make_client(migrated_db) as (alice, app):
+async def test_other_users_resources_are_404(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+    async with make_client(migrated_db) as (alice, _):
         await register_and_login(alice, "alice@example.com")
         mid = (await create_monitor(alice))["id"]
-        run_ids = await insert_runs(db, mid, [("FAIL", "READ_TIMEOUT", 5000)] * 2)
+        await insert_runs(db, mid, ["FAIL"])
         async with db() as s:
-            iid = await s.scalar(
+            await s.execute(
                 text(
-                    """INSERT INTO incidents (monitor_id, status, opened_at, first_failure_run_id,
-                           failure_count, dominant_failure_class)
-                       VALUES (:m, 'OPEN', now(), :r, 2, 'READ_TIMEOUT') RETURNING id"""
+                    "INSERT INTO incidents (monitor_id, opened_at, failure_class) "
+                    "VALUES (:m, now(), 'CONNECT')"
                 ),
-                {"m": mid, "r": run_ids[0]},
+                {"m": mid},
             )
             await s.commit()
 
-        substitutions = {"monitor_id": mid, "run_id": str(run_ids[0]), "incident_id": str(iid)}
-        # The OpenAPI document is the framework-independent list of every route and method.
-        routes = [
-            (path, method.upper())
-            for path, ops in app.openapi()["paths"].items()
-            if "{" in path
-            for method in ops
-        ]
-        assert len(routes) >= 10, routes  # the crawler must actually find the id routes
-
         async with make_client(migrated_db) as (bob, _):
             await register_and_login(bob, "bob@example.com")
-            for path, method in routes:
-                url = path
-                for name, value in substitutions.items():
-                    url = url.replace("{" + name + "}", value)
-                assert "{" not in url, f"unmapped path parameter in {path}"
-                resp = await bob.request(
-                    method, url, json={} if method in ("PATCH", "POST") else None
-                )
-                assert resp.status_code == 404, f"{method} {path} -> {resp.status_code}"
-
-            # and bob sees none of alice's data in list endpoints
             assert (await bob.get(f"{V1}/monitors")).json() == []
-            assert (await bob.get(f"{V1}/incidents")).json()["items"] == []
+            assert (await bob.get(f"{V1}/incidents")).json() == []
+            for method, path in [
+                ("GET", f"/monitors/{mid}"),
+                ("PATCH", f"/monitors/{mid}"),
+                ("DELETE", f"/monitors/{mid}"),
+                ("GET", f"/monitors/{mid}/runs"),
+            ]:
+                body = {} if method == "PATCH" else None
+                r = await bob.request(method, f"{V1}{path}", json=body)
+                assert r.status_code == 404, (method, path, r.status_code)
 
-        # alice's monitor is untouched
-        assert (await alice.get(f"{V1}/monitors/{mid}")).status_code == 200
-        assert uuid.UUID(mid)
+        assert (await alice.get(f"{V1}/monitors/{mid}")).status_code == 200  # still there

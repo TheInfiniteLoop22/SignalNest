@@ -15,7 +15,6 @@ from app.db.session import get_session
 from app.main import create_app
 from app.probe.ssrf import SsrfPolicy
 
-CSRF = {"X-Requested-With": "signalnest"}
 PASSWORD = "correct-horse-battery"
 
 LOCAL_POLICY = SsrfPolicy(
@@ -59,9 +58,7 @@ async def make_client(
     app.dependency_overrides[get_resolver] = lambda: resolver or StaticResolver()
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://test", headers=CSRF
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client, app
     await engine.dispose()
 

@@ -5,7 +5,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from app.api import auth, incidents, monitors, runs, system
+from app.api import auth, incidents, monitors, system
 from app.api.errors import install_error_handlers
 from app.config import get_settings
 
@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
     install_error_handlers(app)
     app.add_middleware(SecurityHeadersMiddleware)
     api = APIRouter(prefix="/api/v1")
-    for module in (auth, monitors, runs, incidents):
+    for module in (auth, monitors, incidents):
         api.include_router(module.router)
     app.include_router(api)
     app.include_router(system.router)

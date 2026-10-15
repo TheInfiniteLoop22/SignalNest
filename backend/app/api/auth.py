@@ -2,7 +2,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Request, Response
-from sqlalchemy import select, update
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import (
@@ -74,11 +74,7 @@ async def login(
 async def logout(request: Request, response: Response, session: DbSession) -> None:
     token = request.cookies.get(COOKIE)
     if token:
-        await session.execute(
-            update(Session)
-            .where(Session.token_hash == token_hash(token), Session.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(UTC))
-        )
+        await session.execute(delete(Session).where(Session.token_hash == token_hash(token)))
         await session.commit()
     response.delete_cookie(COOKIE, path="/")
 
