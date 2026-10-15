@@ -123,3 +123,18 @@ stateDiagram-v2
 - **Residual risk:** a hostname that is on `ALLOWED_HOSTS` or covered by `SSRF_ALLOW_PRIVATE_CIDRS` bypasses the guard by design (dev only; the app logs a warning). The guard does not defend against a public IP that itself proxies to private space.
 - **Static HTTP-client rule:** a unit test fails if `httpx` is imported anywhere under `app/` outside `app/probe/`.
 
+## ADR-019 — Worker claim/complete design (M4)
+- **Decision:**
+  - **Claim (TX1):** one statement, `SELECT ... FOR UPDATE OF s SKIP LOCKED` in a CTE feeding an `UPDATE` that sets `lease_owner` and `lease_expires_at = now() + (2 x timeout + 15 s)`, committed immediately. Eligible rows are unpaused, `next_run_at <= now()`, and either unleased or lease-expired.
+  - **Execute:** no transaction open; bounded by `MAX_CONCURRENCY` (claim limit = free slots, plus a semaphore).
+  - **Complete (TX2):** `INSERT ... ON CONFLICT (monitor_id, scheduled_for) DO NOTHING`, then `UPDATE monitor_state ... WHERE lease_owner = :me`, one transaction.
+- **Why the lease is needed besides the row lock:** the `FOR UPDATE` lock dies at TX1 commit, but the probe takes seconds. The lease is the lock that survives across transactions, with an expiry so a dead worker cannot hold a monitor forever.
+- **Fencing:** the `lease_owner = :me` predicate. If our lease expired and B took over, our UPDATE matches 0 rows and we leave state alone (`LEASE_LOST`). We may still have inserted the run; B's later insert conflicts and B still advances the slot (`DUPLICATE`). Without that second rule a lost-race slot would be re-claimed forever (found while designing the test, `test_expired_lease_taken_over_then_original_finishes_late_is_fenced`).
+- **Limit:** not a true fencing token. A paused-for-minutes worker that wakes after B finished and released could still overwrite state if it re-acquired the lease name; names are per-process (`host-pid`) so this needs a restart race. A monotonically increasing lease generation column would close it; not worth it at this scale.
+- **Time:** all comparisons use the database `now()`. Tests pass an explicit `now` to claim/complete.
+- **Interval edits:** TX2 reads the *current* `interval_seconds`, so an edit during a probe applies to the next slot.
+- **Shutdown:** stop claiming, wait up to `SHUTDOWN_GRACE_S` for in-flight probes, cancel the rest and `release_leases` so they are claimable immediately; nothing half-written exists because evidence is only written in TX2. Exit code 0.
+- **DB outage:** claim loop catches database errors, backs off 1 s -> 30 s (x2, +-25 % jitter), keeps heartbeating attempts, and resumes without a restart.
+- **Measured claim plan** (20 000 monitors, ~93 % overdue so almost everything is eligible, local Postgres 16, `LIMIT 20`): sequential scans + sort, **execution time 11.2 ms**. The planner chose seq scans because most rows qualify. Not yet measured: the steady-state shape (few due rows), where the partial `ix_state_due` index should be used; revisit with real numbers in M8/M10 rather than claiming it now.
+- **Interview Qs answered by tests:** two workers racing (`test_concurrent_claims_never_return_the_same_monitor`), lease expiry while probing (fenced test), kill -9 (`test_kill9_leaves_lease_and_another_worker_recovers_ac3`), graceful stop (`..._ac12`), no catch-up storm (`..._ac11`).
+

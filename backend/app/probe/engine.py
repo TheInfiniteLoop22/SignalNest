@@ -6,6 +6,7 @@ one retry. The default policy is strict; tests/dev opt in to private ranges expl
 """
 
 import asyncio
+import functools
 import ipaddress
 import socket
 import ssl
@@ -102,6 +103,13 @@ class _Timings:
         return None
 
 
+@functools.lru_cache(maxsize=1)
+def _default_ssl_context() -> ssl.SSLContext:
+    """One verifying context for all probes. Building one loads the CA bundle (tens of ms of
+    CPU on the event loop); doing that per probe throttles a worker. Contexts are reusable."""
+    return ssl.create_default_context()
+
+
 def _is_ip(host: str) -> bool:
     try:
         ipaddress.ip_address(host)
@@ -183,7 +191,7 @@ async def _attempt(
                 limits=limits,
                 follow_redirects=False,
                 trust_env=False,
-                verify=ssl_context if ssl_context is not None else True,
+                verify=ssl_context or _default_ssl_context(),
             ) as client:
                 async with client.stream(
                     req.method,

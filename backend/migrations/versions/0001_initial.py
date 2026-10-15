@@ -40,9 +40,9 @@ def upgrade() -> None:
             ["owner_id"], ["users.id"], ondelete="CASCADE", name="fk_monitors_owner_id_users"
         ),
         sa.UniqueConstraint("owner_id", "name", name="uq_monitors_owner_id"),
-        sa.CheckConstraint("method IN ('GET','HEAD')", name="ck_monitors_method"),
-        sa.CheckConstraint("interval_seconds BETWEEN 30 AND 3600", name="ck_monitors_interval"),
-        sa.CheckConstraint("timeout_ms BETWEEN 1000 AND 30000", name="ck_monitors_timeout"),
+        sa.CheckConstraint("method IN ('GET','HEAD')", name="method"),
+        sa.CheckConstraint("interval_seconds BETWEEN 30 AND 3600", name="interval"),
+        sa.CheckConstraint("timeout_ms BETWEEN 1000 AND 30000", name="timeout"),
     )
     op.create_index("ix_monitors_owner_created", "monitors", ["owner_id", "created_at"])
     op.create_table(
@@ -59,9 +59,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
             name="fk_monitor_state_monitor_id_monitors",
         ),
-        sa.CheckConstraint(
-            "health IN ('UNKNOWN','UP','DEGRADED','DOWN','PAUSED')", name="ck_monitor_state_health"
-        ),
+        sa.CheckConstraint("health IN ('UNKNOWN','UP','DEGRADED','DOWN','PAUSED')", name="health"),
     )
     op.create_table(
         "check_runs",
@@ -85,12 +83,10 @@ def upgrade() -> None:
             name="fk_check_runs_monitor_id_monitors",
         ),
         sa.UniqueConstraint("monitor_id", "scheduled_for", name="uq_check_runs_monitor_id"),
-        sa.CheckConstraint(
-            "outcome IN ('PASS','DEGRADED','FAIL','INCONCLUSIVE')", name="ck_check_runs_outcome"
-        ),
+        sa.CheckConstraint("outcome IN ('PASS','DEGRADED','FAIL','INCONCLUSIVE')", name="outcome"),
         sa.CheckConstraint(
             "(failure_class IS NULL) = (outcome IN ('PASS','DEGRADED'))",
-            name="ck_check_runs_failure_class",
+            name="failure_class",
         ),
     )
     op.create_index(

@@ -39,7 +39,7 @@ class Monitor(Base):
     __table_args__ = (
         UniqueConstraint("owner_id", "name"),
         CheckConstraint("method IN ('GET','HEAD')", name="method"),
-        CheckConstraint("interval_seconds BETWEEN 30 AND 3600", name="interval"),
+        CheckConstraint("interval_seconds BETWEEN 1 AND 3600", name="interval"),
         CheckConstraint("timeout_ms BETWEEN 1000 AND 30000", name="timeout"),
         Index("ix_monitors_owner_created", "owner_id", "created_at"),
     )
@@ -58,11 +58,12 @@ class Monitor(Base):
         JSONB, server_default=text("'[]'::jsonb")
     )
     degraded_ms: Mapped[int | None]
+    is_paused: Mapped[bool] = mapped_column(server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
 class MonitorState(Base):
-    """Worker-owned runtime state, 1:1 with a monitor. Minimal in M1; grows in M4/M5."""
+    """Worker-owned runtime state, 1:1 with a monitor. Incident counters arrive in M5."""
 
     __tablename__ = "monitor_state"
     __table_args__ = (
@@ -74,6 +75,8 @@ class MonitorState(Base):
     )
     next_run_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
     health: Mapped[str] = mapped_column(Text, server_default="UNKNOWN")
+    lease_owner: Mapped[str | None] = mapped_column(Text)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(TZ)
     last_run_id: Mapped[int | None] = mapped_column(BigInteger)
     last_run_at: Mapped[datetime | None] = mapped_column(TZ)
 
@@ -118,3 +121,14 @@ class CheckRun(Base):
     error_detail: Mapped[str | None] = mapped_column(Text)
     worker_id: Mapped[str] = mapped_column(Text)
     trigger: Mapped[str] = mapped_column(Text, server_default="schedule")
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(TZ)
+    last_seen_at: Mapped[datetime] = mapped_column(TZ)
+    version: Mapped[str] = mapped_column(Text)
+    in_flight: Mapped[int] = mapped_column(server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)

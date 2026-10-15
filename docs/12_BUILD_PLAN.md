@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M4 (not started)
+CURRENT MILESTONE: M5 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -31,7 +31,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M1 | ✅ Done | 2026-10-15. 4 tests (1 unit, 3 integration) pass locally; CI has a Postgres service job. CLI run 3x -> API listed 3 runs newest-first |
 | M2 | ✅ Done | 2026-10-15. 22 engine tests against real sockets + 37 unit tests; `mypy --strict app/probe` clean. ADR-017 written |
 | M3 | ✅ Done | 2026-10-15. ~55-case IP table + 28 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
-| M4–M10 | ⬜ Not started | |
+| M4 | ✅ Done | 2026-10-15. 16 worker integration tests (AC1-lite, AC2, AC3, AC11, AC12 + fencing); `docker compose up --scale worker=2` demo: 31 runs / 31 distinct slots, then SIGKILL of the worker mid-`/hang` probe -> lease expired and monitor rescheduled, 48 / 48. ADR-019 |
+| M5–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -63,6 +64,13 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M3 | Hostname rules return `BLOCKED_BY_POLICY` (INCONCLUSIVE), malformed URLs `INVALID_TARGET` (FAIL) | Policy denial is not evidence about the target (ADR-009); malformed config is |
 | 2026-10-15 | M3 | Manual runs nudge `scheduled_for` past the latest slot | Unique slot key collided on coarse Windows clock; replaced by the real scheduler in M4 |
 | 2026-10-15 | M3 | M1/M2 tests now pass an explicit loopback policy | The strict default correctly refuses 127.0.0.1 |
+| 2026-10-15 | M4 | `monitors.interval_seconds` CHECK relaxed from 30..3600 to 1..3600 (migration 0003) | Lets worker tests use short intervals; the 30 s floor becomes API validation (`MIN_INTERVAL_S`, M6) |
+| 2026-10-15 | M4 | Fixed migration constraint names: 0001 used names the metadata naming convention re-prefixed (`ck_monitors_ck_monitors_*`) | Found when 0003 tried to drop one; 0001 edited in place (nothing deployed yet) and a down/up cycle is verified |
+| 2026-10-15 | M4 | AC1 verified as "one run per slot per interval" with a 30 s interval over ~3 s, not "10 +- 1 runs in 5 min" | A 5-minute test is too slow for CI; slot arithmetic is unit-tested in `test_schedule.py` |
+| 2026-10-15 | M4 | Not done: automated DB-outage test, `docker compose` kill drill scripted in CI | Done manually only for kill -9; outage backoff is implemented but verified by reading, not by a test. Add in M8 |
+| 2026-10-15 | M4 | Added shared SSL context in the engine | Per-probe CA-bundle loading blocked the event loop badly enough that 30 concurrent probes stalled for seconds |
+| 2026-10-15 | M4 | `docker-compose.yml` now has migrate/api/worker/faultline, Dockerfile with 4 targets | Needed for `--scale worker=2`; frontend stage and prod compose come later |
+| 2026-10-15 | M4 | Learner-owned claim SQL and `next_run_at` function written by Claude | Autonomous workflow |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

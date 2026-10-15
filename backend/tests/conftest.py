@@ -1,10 +1,13 @@
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import uvicorn
 from alembic import command
 from alembic.config import Config
+from faultline.app import app as faultline_app
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -32,7 +35,9 @@ async def session(migrated_db: str) -> AsyncIterator[AsyncSession]:
     async with async_sessionmaker(engine, expire_on_commit=False)() as s:
         yield s
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, monitors, monitor_state, check_runs CASCADE"))
+        await conn.execute(
+            text("TRUNCATE users, monitors, monitor_state, check_runs, worker_heartbeats CASCADE")
+        )
     await engine.dispose()
 
 
@@ -47,3 +52,23 @@ async def seeded(session: AsyncSession) -> tuple[User, Monitor]:
     session.add(MonitorState(monitor_id=monitor.id))
     await session.commit()
     return user, monitor
+
+
+@pytest_asyncio.fixture
+async def faultline() -> AsyncIterator[str]:
+    """Faultline on an ephemeral localhost port; yields the base URL."""
+    config = uvicorn.Config(
+        faultline_app, host="127.0.0.1", port=0, log_level="warning", lifespan="off"
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    while not server.started:  # noqa: ASYNC110 - uvicorn exposes no startup Event
+        await asyncio.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    server.force_exit = True
+    try:
+        await asyncio.wait_for(task, 3)
+    except (TimeoutError, asyncio.CancelledError):
+        pass  # abandoned connections (e.g. /hang) must not stall the suite

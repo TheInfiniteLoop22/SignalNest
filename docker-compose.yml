@@ -1,4 +1,10 @@
-# Dev stack. M0: database only. api/worker/faultline/web are added in later milestones.
+# Dev stack: db, one-shot migrate, api, worker (scalable), faultline.
+x-app-env: &app-env
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-signalnest}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-signalnest}
+  # Dev only: lets probes reach Faultline on the docker network. Must be empty in prod.
+  SSRF_ALLOW_PRIVATE_CIDRS: 172.16.0.0/12
+  ALLOWED_HOSTS: faultline
+
 services:
   db:
     image: postgres:16
@@ -15,6 +21,32 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment: *app-env
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    build: { context: ., target: api }
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker:
+    build: { context: ., target: worker }
+    environment: *app-env
+    stop_grace_period: 30s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  faultline:
+    build: { context: ., target: faultline }
+    ports:
+      - "8001:8001"
 
 volumes:
   pgdata:

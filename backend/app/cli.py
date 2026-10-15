@@ -12,7 +12,7 @@ from app.db.session import SessionLocal
 from app.services.probe_once import probe_monitor
 
 
-async def seed(url: str) -> None:
+async def seed(url: str, name: str, interval: int) -> None:
     settings = get_settings()
     async with SessionLocal() as session:
         user = await session.scalar(select(User).where(User.email == settings.dev_user_email))
@@ -21,10 +21,10 @@ async def seed(url: str) -> None:
             session.add(user)
             await session.flush()
         monitor = await session.scalar(
-            select(Monitor).where(Monitor.owner_id == user.id, Monitor.name == "dev-ok")
+            select(Monitor).where(Monitor.owner_id == user.id, Monitor.name == name)
         )
         if monitor is None:
-            monitor = Monitor(owner_id=user.id, name="dev-ok", url=url)
+            monitor = Monitor(owner_id=user.id, name=name, url=url, interval_seconds=interval)
             session.add(monitor)
             await session.flush()
             session.add(MonitorState(monitor_id=monitor.id))
@@ -34,7 +34,9 @@ async def seed(url: str) -> None:
 
 async def probe(monitor_id: uuid.UUID) -> None:
     async with SessionLocal() as session:
-        run, result = await probe_monitor(session, monitor_id, worker_id=get_settings().worker_id)
+        run, result = await probe_monitor(
+            session, monitor_id, worker_id=get_settings().worker_id or "cli"
+        )
     print(f"run={run.id} outcome={result.outcome} class={result.failure_class}")
     print(f"{'attempt':<8}{'ip':<16}{'dns':>6}{'conn':>6}{'tls':>6}{'ttfb':>6}{'total':>7}  result")
     for i, a in enumerate(result.attempts, 1):
@@ -57,11 +59,13 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_seed = sub.add_parser("seed")
     p_seed.add_argument("--url", default="http://localhost:8001/ok")
+    p_seed.add_argument("--name", default="dev-ok")
+    p_seed.add_argument("--interval", type=int, default=60)
     p_probe = sub.add_parser("probe")
     p_probe.add_argument("monitor_id", type=uuid.UUID)
     args = parser.parse_args()
     if args.cmd == "seed":
-        asyncio.run(seed(args.url))
+        asyncio.run(seed(args.url, args.name, args.interval))
     else:
         asyncio.run(probe(args.monitor_id))
 
