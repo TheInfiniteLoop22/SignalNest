@@ -7,7 +7,6 @@ import type {
   MonitorInput,
   Outcome,
   Page,
-  ProbeTestResult,
   RunDetail,
   RunSummary,
   Stats,
@@ -160,12 +159,5 @@ export function useDeleteMonitor() {
   return useMutation({
     mutationFn: (id: string) => api<void>(`/monitors/${id}`, { method: "DELETE" }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.monitors }),
-  });
-}
-
-export function useProbeTest() {
-  return useMutation({
-    mutationFn: (body: Pick<MonitorInput, "url" | "method" | "timeout_ms" | "headers" | "assertions" | "degraded_ms">) =>
-      api<ProbeTestResult>("/probe/test", { method: "POST", body }),
   });
 }

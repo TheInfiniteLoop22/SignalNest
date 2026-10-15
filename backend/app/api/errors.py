@@ -55,7 +55,6 @@ def _body(
         "status": status,
         "detail": detail,
         "instance": request.url.path,
-        "request_id": getattr(request.state, "request_id", None),
     }
     if errors:
         body["errors"] = errors

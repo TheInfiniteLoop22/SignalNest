@@ -1,6 +1,6 @@
 """Value types for the probe engine. No I/O, no database."""
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -36,10 +36,6 @@ class FailureClass(StrEnum):
 # Classes caused by our side (or by policy), never counted against the target.
 INCONCLUSIVE_CLASSES = frozenset(
     {FailureClass.BLOCKED_BY_POLICY, FailureClass.PROBE_INTERNAL_ERROR}
-)
-# The only classes worth one retry (07 §5).
-RETRYABLE_CLASSES = frozenset(
-    {FailureClass.DNS_TIMEOUT, FailureClass.CONNECT_TIMEOUT, FailureClass.CONNECTION_RESET}
 )
 
 
@@ -163,6 +159,3 @@ class DnsTimeout(Exception):
 
 class Resolver(Protocol):
     async def resolve(self, host: str, timeout_s: float) -> list[str]: ...
-
-
-Sleeper = Callable[[float], Awaitable[None]]

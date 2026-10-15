@@ -1,14 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy import text
 
-from app.api.deps import CurrentUser, DbSession, require_csrf_header
+from app.api.deps import CurrentUser, DbSession
 from app.api.errors import Problem
 from app.api.schemas import RunDetail, Timings
 from app.services.explain import explain
 
-router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(require_csrf_header)])
+router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 @router.get("/{run_id}", response_model=RunDetail)

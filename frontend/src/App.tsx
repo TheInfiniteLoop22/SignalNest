@@ -11,7 +11,6 @@ import { MonitorDetailPage } from "./pages/MonitorDetail";
 import { MonitorFormPage } from "./pages/MonitorForm";
 import { MonitorsPage } from "./pages/Monitors";
 import { RunDetailPage } from "./pages/RunDetail";
-import { SystemPage } from "./pages/System";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useMe();
@@ -54,7 +53,6 @@ export function App() {
         <Route path="runs/:runId" element={<RunDetailPage />} />
         <Route path="incidents" element={<IncidentsPage />} />
         <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
-        <Route path="system" element={<SystemPage />} />
         <Route path="*" element={<p>Page not found.</p>} />
       </Route>
     </Routes>

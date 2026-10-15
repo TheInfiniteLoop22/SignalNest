@@ -21,7 +21,6 @@ from app.probe.classify import classify_exception
 from app.probe.ssrf import BlockedTarget, SsrfPolicy, TargetError
 from app.probe.types import (
     INCONCLUSIVE_CLASSES,
-    RETRYABLE_CLASSES,
     AttemptResult,
     DnsNameNotFound,
     DnsTimeout,
@@ -31,7 +30,6 @@ from app.probe.types import (
     ProbeRequest,
     ProbeResult,
     Resolver,
-    Sleeper,
     StatusIn,
 )
 
@@ -253,23 +251,13 @@ async def run_probe(
     policy: SsrfPolicy | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
     ssl_context: ssl.SSLContext | None = None,
-    sleep: Sleeper = asyncio.sleep,
-    retry_delay_s: float = 1.0,
 ) -> ProbeResult:
     resolver = resolver or SystemResolver()
     policy = policy or SsrfPolicy()  # strict by default
-    attempts: list[AttemptResult] = []
-
     attempt, body = await _attempt(
         req, resolver=resolver, policy=policy, transport=transport, ssl_context=ssl_context
     )
-    attempts.append(attempt)
-    if attempt.error_class in RETRYABLE_CLASSES:
-        await sleep(retry_delay_s)
-        attempt, body = await _attempt(
-            req, resolver=resolver, policy=policy, transport=transport, ssl_context=ssl_context
-        )
-        attempts.append(attempt)
+    attempts = [attempt]
 
     final = attempts[-1]
     snippet = body.data[:SNIPPET_BYTES].decode("utf-8", errors="replace") if body.status else None

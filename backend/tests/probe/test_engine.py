@@ -17,7 +17,6 @@ from app.probe.engine import run_probe as _run_probe
 from app.probe.ssrf import SsrfPolicy
 from app.probe.types import (
     DnsNameNotFound,
-    DnsTimeout,
     FailureClass,
     JsonEquals,
     Outcome,
@@ -38,9 +37,6 @@ LOCAL_POLICY = SsrfPolicy(
 async def run_probe(request: ProbeRequest, **kw: Any) -> ProbeResult:
     kw.setdefault("policy", LOCAL_POLICY)
     return await _run_probe(request, **kw)
-
-
-FAST: dict[str, Any] = {"retry_delay_s": 0.0}
 
 
 def req(url: str, **kw: Any) -> ProbeRequest:
@@ -64,34 +60,33 @@ async def test_ac4_hang_is_read_timeout(faultline: str) -> None:
     assert r.outcome is Outcome.FAIL
     assert r.failure_class is F.READ_TIMEOUT
     assert 1000 <= r.final.total_ms < 1400
-    assert len(r.attempts) == 1  # READ_TIMEOUT is never retried
+    assert len(r.attempts) == 1
 
 
 async def test_ac5_connection_refused_has_no_tls_or_ttfb() -> None:
     # Windows takes ~2 s to report a refused loopback connect (SYN retries), so allow 5 s.
-    r = await run_probe(req(f"http://127.0.0.1:{free_port()}/", timeout_ms=5000), **FAST)
+    r = await run_probe(req(f"http://127.0.0.1:{free_port()}/", timeout_ms=5000))
     assert r.failure_class is F.CONNECTION_REFUSED
     assert r.final.tls_ms is None
     assert r.final.ttfb_ms is None
     assert len(r.attempts) == 1
 
 
-async def test_connection_reset_is_retried_once() -> None:
+async def test_connection_reset_is_classified() -> None:
     srv = await start_rst_server()
     try:
         port = srv.sockets[0].getsockname()[1]
-        r = await run_probe(req(f"http://127.0.0.1:{port}/"), **FAST)
+        r = await run_probe(req(f"http://127.0.0.1:{port}/"))
     finally:
         srv.close()
     assert r.failure_class is F.CONNECTION_RESET
-    assert len(r.attempts) == 2
 
 
 async def test_clean_close_without_response_is_reset() -> None:
     srv = await start_close_server()
     try:
         port = srv.sockets[0].getsockname()[1]
-        r = await run_probe(req(f"http://127.0.0.1:{port}/"), **FAST)
+        r = await run_probe(req(f"http://127.0.0.1:{port}/"))
     finally:
         srv.close()
     assert r.failure_class is F.CONNECTION_RESET
@@ -105,7 +100,7 @@ async def test_untrusted_cert_is_tls_cert_invalid() -> None:
     try:
         port = srv.sockets[0].getsockname()[1]
         # System trust store does not contain the private CA.
-        r = await run_probe(req(f"https://127.0.0.1:{port}/"), **FAST)
+        r = await run_probe(req(f"https://127.0.0.1:{port}/"))
     finally:
         srv.close()
     assert r.failure_class is F.TLS_CERT_INVALID
@@ -189,34 +184,9 @@ class FakeResolver:
 
 async def test_dns_failure_is_not_retried() -> None:
     res = FakeResolver(DnsNameNotFound("nx"))
-    r = await run_probe(req("http://nope.test/"), resolver=res, **FAST)
+    r = await run_probe(req("http://nope.test/"), resolver=res)
     assert r.failure_class is F.DNS_FAILURE
     assert res.calls == 1
-
-
-async def test_dns_timeout_is_retried_once() -> None:
-    res = FakeResolver(DnsTimeout("slow"))
-    r = await run_probe(req("http://slow.test/"), resolver=res, **FAST)
-    assert r.failure_class is F.DNS_TIMEOUT
-    assert res.calls == 2
-
-
-async def test_pass_on_retry_keeps_both_attempts(faultline: str) -> None:
-    calls = {"n": 0}
-
-    class FlakyResolver:
-        async def resolve(self, host: str, timeout_s: float) -> list[str]:
-            calls["n"] += 1
-            if calls["n"] == 1:
-                raise DnsTimeout(host)
-            return ["127.0.0.1"]
-
-    port = faultline.rsplit(":", 1)[1]
-    r = await run_probe(req(f"http://faultline.test:{port}/ok"), resolver=FlakyResolver(), **FAST)
-    assert r.outcome is Outcome.PASS
-    assert len(r.attempts) == 2
-    assert r.attempts[0].error_class is F.DNS_TIMEOUT
-    assert r.final.dns_ms is not None
 
 
 async def test_private_resolution_is_inconclusive_and_sends_nothing() -> None:
@@ -234,12 +204,10 @@ async def test_connect_timeout_via_transport_seam() -> None:
             await asyncio.sleep(3600)
             raise AssertionError("unreachable")
 
-    r = await run_probe(
-        req("http://127.0.0.1:9/", timeout_ms=1000), transport=NeverConnects(), **FAST
-    )
+    r = await run_probe(req("http://127.0.0.1:9/", timeout_ms=1000), transport=NeverConnects())
     # No trace events fire through a custom transport, so the phase is still CONNECT.
     assert r.failure_class is F.CONNECT_TIMEOUT
-    assert len(r.attempts) == 2
+    assert len(r.attempts) == 1
 
 
 @pytest.mark.parametrize("url", ["ftp://x/", "http://user:pw@x/", "notaurl"])

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # `:now` is NULL in production (the database clock decides, so process clock skew cannot
 # matter); tests pass an explicit instant.
 #
-# lease = 2 x timeout + 15 s: room for two attempts, the 1 s retry pause and TX2 (docs/07 s5).
+# lease = 2 x timeout + 15 s: generous room for one probe plus TX2.
 CLAIM_SQL = text(
     """
     WITH t AS (SELECT COALESCE(CAST(:now AS timestamptz), now()) AS now),

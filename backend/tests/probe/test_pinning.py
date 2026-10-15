@@ -41,7 +41,6 @@ async def _tls_probe(cert_name: str) -> tuple[Outcome, FailureClass | None, int 
             resolver=Fixed(["127.0.0.1"]),
             policy=LOOPBACK_OK,
             ssl_context=client_ctx,
-            retry_delay_s=0,
         )
     finally:
         srv.close()

@@ -3,7 +3,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -14,12 +14,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.probe.types import (
-    Assertion,
-    LatencyBelow,
-    StatusIn,
-    assertion_list_adapter,
-)
+from app.probe.types import Assertion
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _TOKEN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")  # RFC 7230 token
@@ -217,44 +212,7 @@ class RunDetail(BaseModel):
     worker_id: str
 
 
-class ProbeTestIn(BaseModel):
-    url: str = Field(min_length=1, max_length=2048)
-    method: Literal["GET", "HEAD"] = "GET"
-    timeout_ms: int = Field(default=5000, ge=1000, le=10000)
-    headers: dict[str, str] = Field(default_factory=dict)
-    assertions: list[Assertion] = Field(default_factory=list, max_length=8)
-    degraded_ms: int | None = Field(default=None, ge=1)
-
-    @field_validator("headers")
-    @classmethod
-    def _headers(cls, v: dict[str, str]) -> dict[str, str]:
-        return _validate_headers(v)
-
-
-class ProbeTestOut(BaseModel):
-    outcome: str
-    failure_class: str | None
-    explanation: str
-    timings: Timings
-    resolved_ip: str | None
-    http_status: int | None
-    attempt_count: int
-    assertion_results: list[dict[str, Any]]
-    response_headers: dict[str, str] | None
-    response_snippet: str | None
-    body_truncated: bool
-    error_detail: str | None
-
-
 # --- stats / incidents -----------------------------------------------------------------
-
-
-class SeriesPoint(BaseModel):
-    bucket: datetime
-    p50_ms: float | None
-    p95_ms: float | None
-    sample_count: int
-    fail_count: int
 
 
 class StatsOut(BaseModel):
@@ -265,7 +223,6 @@ class StatsOut(BaseModel):
     p95_ms: float | None
     by_outcome: dict[str, int]
     by_failure_class: dict[str, int]
-    series: list[SeriesPoint]
 
 
 class IncidentEventOut(BaseModel):
@@ -295,11 +252,3 @@ class IncidentDetail(IncidentOut):
     resolving_run_id: int | None
     events: list[IncidentEventOut]
     evidence: dict[str, Any]
-
-
-__all__ = [
-    "Annotated",
-    "LatencyBelow",
-    "StatusIn",
-    "assertion_list_adapter",
-]

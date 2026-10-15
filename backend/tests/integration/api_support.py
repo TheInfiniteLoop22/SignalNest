@@ -1,21 +1,19 @@
 """Helpers for API tests: an app wired to the test database with controllable seams."""
 
 import ipaddress
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.deps import Prober, get_policy, get_prober, get_resolver
+from app.api.deps import get_policy, get_resolver
 from app.config import Settings, get_settings
 from app.db.session import get_session
 from app.main import create_app
 from app.probe.ssrf import SsrfPolicy
-from app.probe.types import AttemptResult, Outcome, ProbeRequest, ProbeResult
 
 CSRF = {"X-Requested-With": "signalnest"}
 PASSWORD = "correct-horse-battery"
@@ -37,25 +35,12 @@ class StaticResolver:
         return self.ips
 
 
-def fake_result(outcome: Outcome = Outcome.PASS) -> ProbeResult:
-    now = datetime.now(UTC)
-    return ProbeResult(
-        outcome=outcome,
-        failure_class=None,
-        attempts=[AttemptResult(now, "93.184.216.34", 1, 11, 24, 40, 80, 200, None, None)],
-        assertion_results=[],
-        response_headers={"content-type": "application/json"},
-        response_snippet='{"ok":true}',
-    )
-
-
 @asynccontextmanager
 async def make_client(
     database_url: str,
     *,
     policy: SsrfPolicy | None = None,
     resolver: StaticResolver | None = None,
-    prober: Callable[[ProbeRequest], Awaitable[ProbeResult]] | None = None,
     **settings: Any,
 ) -> AsyncIterator[tuple[httpx.AsyncClient, FastAPI]]:
     engine = create_async_engine(database_url, pool_size=10)
@@ -72,9 +57,6 @@ async def make_client(
     app.dependency_overrides[get_settings] = lambda: cfg
     app.dependency_overrides[get_policy] = lambda: policy or LOCAL_POLICY
     app.dependency_overrides[get_resolver] = lambda: resolver or StaticResolver()
-    if prober is not None:
-        fixed: Prober = prober
-        app.dependency_overrides[get_prober] = lambda: fixed
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useIncident, useIncidents } from "../api/hooks";
 import { Card, ErrorBox, Loading } from "../components/Common";
-import { formatMs, localTime, utcTime } from "../lib/format";
+import { localTime, utcTime } from "../lib/format";
 
 export function IncidentsPage() {
   const [status, setStatus] = useState<"" | "OPEN" | "RESOLVED">("");
@@ -127,13 +127,6 @@ export function IncidentDetailPage() {
               </li>
             ))}
           </ul>
-        )}
-        {ev.baseline && (
-          <p className="muted">
-            Baseline (7-day median of passing runs, {ev.baseline.sample_count} samples): connect{" "}
-            {formatMs(ev.baseline.median_connect_ms)}, TTFB {formatMs(ev.baseline.median_ttfb_ms)}
-            {ev.baseline.sample_count < 20 && " — too few samples for timing comparisons"}
-          </p>
         )}
       </Card>
 

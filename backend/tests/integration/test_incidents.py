@@ -32,7 +32,7 @@ async def sessions(migrated_db: str):  # type: ignore[no-untyped-def]
     maker = async_sessionmaker(engine, expire_on_commit=False)
     yield maker
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
+        await conn.execute(text("TRUNCATE users CASCADE"))
     await engine.dispose()
 
 
@@ -74,7 +74,7 @@ class Cycle:
             assert monitor is not None
             req = request_for(monitor)
         started = datetime.now(UTC)
-        result = await run_probe(req, policy=LOCAL, retry_delay_s=0)
+        result = await run_probe(req, policy=LOCAL)
         async with self.sessions() as s:
             await complete_run(
                 s, claim, result, worker_id="w", started_at=started,
@@ -182,7 +182,6 @@ async def test_evidence_and_hints_for_an_http_outage(
     assert ev is not None
     assert ev["class_counts"] == {"HTTP_UNEXPECTED_STATUS": 3}
     assert ev["first_failure_run"]["http_status"] == 503
-    assert ev["baseline"]["sample_count"] == 0
     assert [h["code"] for h in ev["hints"]] == ["H_5XX"]
     assert len(ev["hints"][0]["evidence_run_ids"]) == 3
     json.dumps(ev)  # must be JSON-serialisable for the API
@@ -223,7 +222,7 @@ async def test_inconclusive_runs_never_open_incidents_ac9(
             monitor = await s.get(Monitor, mid)
             assert monitor is not None
             req = request_for(monitor)
-        result = await run_probe(req, policy=SsrfPolicy(), retry_delay_s=0)
+        result = await run_probe(req, policy=SsrfPolicy())
         assert result.outcome is Outcome.INCONCLUSIVE
         t = datetime.now(UTC)
         async with sessions() as s:

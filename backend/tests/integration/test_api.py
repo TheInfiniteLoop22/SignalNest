@@ -6,10 +6,8 @@ import httpx
 import pytest
 import pytest_asyncio
 from api_support import (
-    CSRF,
     PASSWORD,
     StaticResolver,
-    fake_result,
     make_client,
     monitor_body,
     register_and_login,
@@ -18,7 +16,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.probe.ssrf import SsrfPolicy
-from app.probe.types import Outcome
 
 pytestmark = pytest.mark.integration
 
@@ -31,7 +28,7 @@ async def db(migrated_db: str):  # type: ignore[no-untyped-def]
     maker = async_sessionmaker(engine, expire_on_commit=False)
     yield maker
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
+        await conn.execute(text("TRUNCATE users CASCADE"))
     await engine.dispose()
 
 
@@ -122,7 +119,7 @@ async def test_register_validation_conflict_and_disabled(migrated_db: str, db) -
         assert r.status_code == 403
 
 
-async def test_login_errors_are_generic_and_rate_limited(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+async def test_login_errors_are_generic(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
         await c.post(f"{V1}/auth/register", json={"email": "a@example.com", "password": PASSWORD})
         wrong = await c.post(
@@ -133,29 +130,16 @@ async def test_login_errors_are_generic_and_rate_limited(migrated_db: str, db) -
         )
         assert wrong.status_code == unknown.status_code == 401
         assert wrong.json()["detail"] == unknown.json()["detail"]
-        for _ in range(4):  # 1 failure for a@ so far (z@ is a different key) + 4 = 5
-            await c.post(f"{V1}/auth/login", json={"email": "a@example.com", "password": "x" * 12})
-        r = await c.post(f"{V1}/auth/login", json={"email": "a@example.com", "password": PASSWORD})
-        assert r.status_code == 429  # even the right password is refused while locked out
-        assert int(r.headers["retry-after"]) > 0
 
 
-async def test_unsafe_requests_need_the_csrf_header(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+async def test_errors_are_problem_json(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
     async with make_client(migrated_db) as (c, _):
-        await register_and_login(c)
-        r = await c.post(f"{V1}/monitors", json=monitor_body(), headers={"X-Requested-With": ""})
-        assert r.status_code == 403
-        assert r.json()["type"].endswith("/csrf")
-
-
-async def test_errors_are_problem_json_with_request_id(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db) as (c, _):
-        r = await c.get(f"{V1}/monitors", headers={"X-Request-ID": "abc-123"})
+        r = await c.get(f"{V1}/monitors")
         assert r.status_code == 401
         body = r.json()
         assert r.headers["content-type"].startswith("application/problem+json")
-        assert body["status"] == 401 and body["request_id"] == "abc-123"
-        assert r.headers["x-request-id"] == "abc-123"
+        assert body["status"] == 401
+        assert body["type"].endswith("/unauthenticated")
         assert body["instance"] == f"{V1}/monitors"
 
 
@@ -229,12 +213,10 @@ async def test_duplicate_name_is_conflict(migrated_db: str, db) -> None:  # type
         assert r.json()["type"].endswith("/duplicate-name")
 
 
-async def test_per_user_and_per_host_caps(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    async with make_client(migrated_db, max_monitors_per_user=2, max_monitors_per_host=1) as (c, _):
+async def test_per_user_monitor_cap(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
+    async with make_client(migrated_db, max_monitors_per_user=2) as (c, _):
         await register_and_login(c)
         await create_monitor(c, "one", url="https://a.example.com/x")
-        r = await c.post(f"{V1}/monitors", json=monitor_body("two", url="https://a.example.com/y"))
-        assert r.status_code == 422 and r.json()["type"].endswith("/host-limit")
         await create_monitor(c, "two", url="https://b.example.com/")
         r = await c.post(f"{V1}/monitors", json=monitor_body("three", url="https://c.example.com/"))
         assert r.status_code == 422 and r.json()["type"].endswith("/monitor-limit")
@@ -286,8 +268,6 @@ async def test_pause_resume_check_now(migrated_db: str, db) -> None:  # type: ig
         assert (await c.get(f"{V1}/monitors/{mid}")).json()["state"]["health"] == "UNKNOWN"
 
         assert (await c.post(f"{V1}/monitors/{mid}/check")).status_code == 202
-        again = await c.post(f"{V1}/monitors/{mid}/check")
-        assert again.status_code == 429 and "retry-after" in again.headers
     async with db() as s:
         due = await s.scalar(
             text("SELECT next_run_at <= now() FROM monitor_state WHERE monitor_id = :m"),
@@ -404,7 +384,6 @@ async def test_stats_exclude_inconclusive_from_uptime(migrated_db: str, db) -> N
         assert s["by_outcome"] == {"PASS": 6, "DEGRADED": 1, "FAIL": 3, "INCONCLUSIVE": 5}
         assert s["by_failure_class"]["READ_TIMEOUT"] == 3
         assert s["p50_ms"] == 100.0  # failures' 5000 ms do not leak into latency
-        assert sum(p["sample_count"] for p in s["series"]) == 10
         r = await c.get(f"{V1}/monitors/{mid}/stats", params={"window": "30d"})
         assert r.status_code == 422
 
@@ -470,54 +449,10 @@ async def test_incident_list_open_first_and_detail(migrated_db: str, db) -> None
         detail = (await c.get(f"{V1}/incidents/{ids[1]}")).json()
         assert detail["events"][0]["kind"] == "OPENED"
         assert detail["evidence"]["class_counts"] == {"HTTP_UNEXPECTED_STATUS": 3}
-        assert detail["evidence"]["baseline"]["sample_count"] == 0
         assert detail["first_failure_run_id"] == runs[0]
 
 
 # --- probe test ---------------------------------------------------------------------------
-
-
-async def test_probe_test_returns_unsaved_result_and_is_rate_limited(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    calls: list[str] = []
-
-    async def prober(req):  # type: ignore[no-untyped-def]
-        calls.append(req.url)
-        return fake_result(Outcome.PASS)
-
-    async with make_client(migrated_db, prober=prober) as (c, _):
-        await register_and_login(c)
-        body = {"url": "https://api.example.com/health", "timeout_ms": 3000}
-        r = await c.post(f"{V1}/probe/test", json=body)
-        assert r.status_code == 200, r.text
-        out = r.json()
-        assert out["outcome"] == "PASS"
-        assert out["timings"]["connect_ms"] == 11
-        assert out["response_snippet"] == '{"ok":true}'
-        for _ in range(5):
-            assert (await c.post(f"{V1}/probe/test", json=body)).status_code == 200
-        limited = await c.post(f"{V1}/probe/test", json=body)
-        assert limited.status_code == 429  # 6 per minute
-        assert len(calls) == 6
-    async with db() as s:
-        assert await s.scalar(text("SELECT count(*) FROM check_runs")) == 0  # nothing stored
-
-
-async def test_probe_test_blocks_private_targets_before_sending(migrated_db: str, db) -> None:  # type: ignore[no-untyped-def]
-    sent: list[str] = []
-
-    async def prober(req):  # type: ignore[no-untyped-def]
-        sent.append(req.url)
-        return fake_result()
-
-    async with make_client(migrated_db, policy=SsrfPolicy(), prober=prober) as (c, _):
-        await register_and_login(c)
-        r = await c.post(f"{V1}/probe/test", json={"url": "http://169.254.169.254/"})
-        assert r.status_code == 422
-        assert sent == []
-        r = await c.post(
-            f"{V1}/probe/test", json={"url": "https://x.example.com/", "timeout_ms": 60000}
-        )
-        assert r.status_code == 422  # timeout capped at 10 s
 
 
 # --- ownership (IDOR) ---------------------------------------------------------------------
@@ -569,6 +504,3 @@ async def test_other_users_resources_are_404_everywhere_ac8(migrated_db: str, db
         # alice's monitor is untouched
         assert (await alice.get(f"{V1}/monitors/{mid}")).status_code == 200
         assert uuid.UUID(mid)
-
-
-_ = CSRF

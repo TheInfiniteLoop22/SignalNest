@@ -157,17 +157,6 @@ class CheckRun(Base):
     trigger: Mapped[str] = mapped_column(Text, server_default="schedule")
 
 
-class WorkerHeartbeat(Base):
-    __tablename__ = "worker_heartbeats"
-
-    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    started_at: Mapped[datetime] = mapped_column(TZ)
-    last_seen_at: Mapped[datetime] = mapped_column(TZ)
-    version: Mapped[str] = mapped_column(Text)
-    in_flight: Mapped[int] = mapped_column(server_default="0")
-    last_error: Mapped[str | None] = mapped_column(Text)
-
-
 class Incident(Base):
     __tablename__ = "incidents"
     __table_args__ = (

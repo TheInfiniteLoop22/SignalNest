@@ -4,17 +4,15 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import text
 
-from app.api.deps import CurrentUser, DbSession, require_csrf_header
+from app.api.deps import CurrentUser, DbSession
 from app.api.errors import Problem
 from app.api.schemas import IncidentDetail, IncidentEventOut, IncidentOut, IncidentPage
 from app.incidents.evidence import build_incident_evidence
 
-router = APIRouter(
-    prefix="/incidents", tags=["incidents"], dependencies=[Depends(require_csrf_header)]
-)
+router = APIRouter(prefix="/incidents", tags=["incidents"])
 
 
 def _encode(rank: int, opened_at: datetime, incident_id: uuid.UUID) -> str:

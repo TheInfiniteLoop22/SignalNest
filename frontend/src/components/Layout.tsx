@@ -27,7 +27,6 @@ export function Layout() {
             Monitors
           </NavLink>
           <NavLink to="/incidents">Incidents</NavLink>
-          <NavLink to="/system">System</NavLink>
         </nav>
         <span className="spacer" />
         <span className="muted" data-testid="user-email">

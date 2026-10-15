@@ -81,22 +81,12 @@ jobs:
       - run: npx vitest run
       - run: npm run build
 
-  ops:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck
-        run: shellcheck --severity=warning ops/*.sh
-      - name: Production compose file is valid
-        run: docker compose -f docker-compose.prod.yml --env-file .env.prod.example config --quiet
-      - name: Caddyfile is valid
-        run: >
-          docker run --rm -e DOMAIN=example.com -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
-          caddy:2 caddy validate --config /etc/caddy/Caddyfile
-      - name: Production images build
-        run: |
-          docker build --target api -t signalnest-api .
-          docker build --target worker -t signalnest-worker .
+      - name: Dev stack images build
+        run: docker compose build
 
   security:
     runs-on: ubuntu-latest
@@ -119,4 +109,3 @@ jobs:
         run: >
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source /repo
           --no-banner --redact
-

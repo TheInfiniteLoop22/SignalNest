@@ -16,8 +16,6 @@ export function RunDetailPage() {
   if (error) return <ErrorBox error={error} />;
   if (!r) return null;
 
-  const passedAfterRetry = r.outcome === "PASS" && r.attempt_count > 1;
-
   return (
     <>
       <p>
@@ -29,11 +27,6 @@ export function RunDetailPage() {
         {r.failure_class && <code>{r.failure_class}</code>}
       </div>
       <p>{r.explanation}</p>
-      {passedAfterRetry && (
-        <p className="notice" role="note">
-          Passed after retry: the first attempt failed ({r.attempts[0]?.error_class ?? "error"}).
-        </p>
-      )}
       <p className="muted">
         <time title={utcTime(r.started_at)}>{localTime(r.started_at)}</time> · {r.trigger} · worker {r.worker_id}
         {r.resolved_ip && <> · {r.resolved_ip}</>}
@@ -41,28 +34,7 @@ export function RunDetailPage() {
       </p>
 
       <Card title="Phases">
-        {r.attempts.length > 1 ? (
-          r.attempts.map((a, i) => (
-            <div key={i}>
-              <h3>
-                Attempt {i + 1}
-                {a.error_class && <> — {a.error_class}</>}
-              </h3>
-              <Waterfall
-                label={`Attempt ${i + 1} phases`}
-                timings={{
-                  dns_ms: a.dns_ms,
-                  connect_ms: a.connect_ms,
-                  tls_ms: a.tls_ms,
-                  ttfb_ms: a.ttfb_ms,
-                  total_ms: a.total_ms,
-                }}
-              />
-            </div>
-          ))
-        ) : (
-          <Waterfall timings={r.timings} />
-        )}
+        <Waterfall timings={r.timings} />
       </Card>
 
       {r.assertion_results.length > 0 && (

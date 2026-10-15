@@ -1,16 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   useDeleteMonitor,
   useMonitor,
   useMonitorAction,
@@ -69,7 +59,6 @@ function RunsTable({ id }: { id: string }) {
                   <td title={utcTime(r.started_at)}>{localTime(r.started_at)}</td>
                   <td>
                     <OutcomeBadge outcome={r.outcome} />
-                    {r.outcome === "PASS" && r.attempt_count > 1 && <span className="muted"> after retry</span>}
                   </td>
                   <td>{r.failure_class ?? "—"}</td>
                   <td>{r.http_status ?? "—"}</td>
@@ -200,29 +189,6 @@ export function MonitorDetailPage() {
               <Stat label="p95 latency" value={formatMs(stats.data.p95_ms)} />
               <Stat label="Checks" value={stats.data.sample_count} />
             </div>
-            {stats.data.series.length > 0 ? (
-              <div className="chart" aria-label="Latency over time">
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart
-                    data={stats.data.series.map((p) => ({
-                      t: new Date(p.bucket).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                      p50: p.p50_ms,
-                      p95: p.p95_ms,
-                    }))}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="t" />
-                    <YAxis unit=" ms" width={70} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="p50" stroke="#2563eb" dot={false} connectNulls />
-                    <Line type="monotone" dataKey="p95" stroke="#d97706" dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="muted">No data in this window yet.</p>
-            )}
             {Object.keys(stats.data.by_failure_class).length > 0 && (
               <>
                 <h3>Failure classes</h3>

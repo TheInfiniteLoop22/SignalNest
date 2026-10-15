@@ -2,9 +2,8 @@ import random
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,21 +12,16 @@ from app.api.deps import (
     CurrentUser,
     DbSession,
     SettingsDep,
-    enforce,
     get_policy,
     get_resolver,
-    limiter,
-    require_csrf_header,
 )
 from app.api.errors import Problem
-from app.api.ratelimit import FixedWindowLimiter
 from app.api.schemas import (
     MonitorCreate,
     MonitorOut,
     MonitorPatch,
     RunPage,
     RunSummary,
-    SeriesPoint,
     StateOut,
     StatsOut,
     SummaryOut,
@@ -38,13 +32,10 @@ from app.probe.ssrf import BlockedTarget, SsrfPolicy, TargetError
 from app.probe.types import DnsNameNotFound, DnsTimeout, Resolver
 from app.services.cursor import BadCursor, decode_cursor, encode_cursor
 
-router = APIRouter(
-    prefix="/monitors", tags=["monitors"], dependencies=[Depends(require_csrf_header)]
-)
+router = APIRouter(prefix="/monitors", tags=["monitors"])
 
 Policy = Annotated[SsrfPolicy, Depends(get_policy)]
 ResolverDep = Annotated[Resolver, Depends(get_resolver)]
-CheckLimiter = Annotated[FixedWindowLimiter, Depends(limiter("check_now"))]
 
 
 # --- helpers --------------------------------------------------------------------------------
@@ -243,7 +234,7 @@ async def create_monitor(
     resolver: ResolverDep,
 ) -> MonitorOut:
     _min_interval(body.interval_seconds, settings)
-    host = await check_target(body.url, policy, resolver)
+    await check_target(body.url, policy, resolver)
 
     existing = (await session.scalars(select(Monitor.url).where(Monitor.owner_id == user.id))).all()
     if len(existing) >= settings.max_monitors_per_user:
@@ -251,13 +242,6 @@ async def create_monitor(
             422,
             "monitor-limit",
             f"monitor limit reached ({settings.max_monitors_per_user})",
-        )
-    same_host = sum(1 for u in existing if (urlsplit(u).hostname or "").lower() == host)
-    if same_host >= settings.max_monitors_per_host:
-        raise Problem(
-            422,
-            "host-limit",
-            f"at most {settings.max_monitors_per_host} monitors per hostname",
         )
 
     monitor = Monitor(
@@ -398,13 +382,10 @@ async def resume(monitor_id: uuid.UUID, session: DbSession, user: CurrentUser) -
 
 
 @router.post("/{monitor_id}/check", status_code=202)
-async def check_now(
-    monitor_id: uuid.UUID, session: DbSession, user: CurrentUser, rate: CheckLimiter
-) -> dict[str, str]:
+async def check_now(monitor_id: uuid.UUID, session: DbSession, user: CurrentUser) -> dict[str, str]:
     monitor = await owned_monitor(session, user, monitor_id)
     if monitor.is_paused:
         raise Problem(409, "paused", "the monitor is paused")
-    enforce(rate, str(monitor.id))
     # The worker stays the only scheduler: we just make the monitor due. If it is leased a run
     # is already in progress, so there is nothing to do.
     await session.execute(
@@ -498,8 +479,7 @@ async def stats(
 ) -> StatsOut:
     await owned_monitor(session, user, monitor_id)
     interval = timedelta(hours=24) if window == "24h" else timedelta(days=7)
-    bucket = timedelta(hours=1) if window == "24h" else timedelta(hours=6)
-    params = {"m": monitor_id, "interval": interval, "bucket": bucket}
+    params = {"m": monitor_id, "interval": interval}
 
     outcome_rows = (
         await session.execute(
@@ -553,30 +533,6 @@ async def stats(
         .mappings()
         .one()
     )
-    series_rows = (
-        (
-            await session.execute(
-                text(
-                    """
-                    SELECT date_bin(CAST(:bucket AS interval), started_at,
-                                    TIMESTAMPTZ '2000-01-01') AS bucket,
-                           count(*) FILTER (WHERE outcome <> 'INCONCLUSIVE') AS n,
-                           count(*) FILTER (WHERE outcome = 'FAIL') AS fails,
-                           percentile_cont(0.5) WITHIN GROUP (ORDER BY total_ms)
-                               FILTER (WHERE outcome IN ('PASS','DEGRADED')) AS p50,
-                           percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)
-                               FILTER (WHERE outcome IN ('PASS','DEGRADED')) AS p95
-                    FROM check_runs
-                    WHERE monitor_id = :m AND started_at >= now() - CAST(:interval AS interval)
-                    GROUP BY 1 ORDER BY 1
-                    """
-                ),
-                params,
-            )
-        )
-        .mappings()
-        .all()
-    )
     n = int(totals["n"])
     return StatsOut(
         window=window,
@@ -586,17 +542,4 @@ async def stats(
         p95_ms=float(totals["p95"]) if totals["p95"] is not None else None,
         by_outcome=by_outcome,
         by_failure_class={r[0]: int(r[1]) for r in class_rows},
-        series=[
-            SeriesPoint(
-                bucket=r["bucket"],
-                p50_ms=float(r["p50"]) if r["p50"] is not None else None,
-                p95_ms=float(r["p95"]) if r["p95"] is not None else None,
-                sample_count=int(r["n"]),
-                fail_count=int(r["fails"]),
-            )
-            for r in series_rows
-        ],
     )
-
-
-__all__ = ["Response", "check_target", "router"]

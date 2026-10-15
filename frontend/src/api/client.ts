@@ -38,8 +38,6 @@ export async function api<T>(
     credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      // Required by the API on unsafe methods (CSRF defence alongside SameSite=Lax).
-      "X-Requested-With": "signalnest",
       ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,

@@ -116,29 +116,6 @@ export interface RunDetail {
   worker_id: string;
 }
 
-export interface ProbeTestResult {
-  outcome: Outcome;
-  failure_class: string | null;
-  explanation: string;
-  timings: Timings;
-  resolved_ip: string | null;
-  http_status: number | null;
-  attempt_count: number;
-  assertion_results: AssertionResult[];
-  response_headers: Record<string, string> | null;
-  response_snippet: string | null;
-  body_truncated: boolean;
-  error_detail: string | null;
-}
-
-export interface SeriesPoint {
-  bucket: string;
-  p50_ms: number | null;
-  p95_ms: number | null;
-  sample_count: number;
-  fail_count: number;
-}
-
 export interface Stats {
   window: string;
   uptime_pct: number | null;
@@ -147,7 +124,6 @@ export interface Stats {
   p95_ms: number | null;
   by_outcome: Record<string, number>;
   by_failure_class: Record<string, number>;
-  series: SeriesPoint[];
 }
 
 export interface Incident {
@@ -179,7 +155,6 @@ export interface IncidentDetail extends Incident {
   events: IncidentEvent[];
   evidence: {
     class_counts?: Record<string, number>;
-    baseline?: { median_connect_ms: number | null; median_ttfb_ms: number | null; sample_count: number };
     hints?: Hint[];
   };
 }

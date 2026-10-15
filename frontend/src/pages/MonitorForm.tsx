@@ -2,9 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
-import { useMonitor, useProbeTest, useSaveMonitor } from "../api/hooks";
-import { Waterfall } from "../components/Waterfall";
-import { OutcomeBadge } from "../components/Badge";
+import { useMonitor, useSaveMonitor } from "../api/hooks";
 import { ErrorBox, Loading } from "../components/Common";
 import {
   FORM_DEFAULTS,
@@ -43,13 +41,10 @@ export function MonitorFormPage() {
 function FormInner({ id, initial }: { id: string | undefined; initial: MonitorFormValues }) {
   const navigate = useNavigate();
   const save = useSaveMonitor(id);
-  const probe = useProbeTest();
   const {
     register,
     handleSubmit,
-    getValues,
     setError,
-    trigger,
     formState: { errors, isSubmitting },
   } = useForm<MonitorFormValues, unknown, MonitorFormParsed>({
     resolver: zodResolver(monitorFormSchema),
@@ -79,20 +74,6 @@ function FormInner({ id, initial }: { id: string | undefined; initial: MonitorFo
         }
       }
     }
-  }
-
-  async function testRequest() {
-    if (!(await trigger())) return;
-    const parsed = monitorFormSchema.parse(getValues());
-    const input = toMonitorInput(parsed);
-    probe.mutate({
-      url: input.url,
-      method: input.method,
-      timeout_ms: Math.min(input.timeout_ms, 10_000),
-      headers: input.headers,
-      assertions: input.assertions,
-      degraded_ms: input.degraded_ms,
-    });
   }
 
   const serverError = save.error instanceof ApiError ? save.error : null;
@@ -171,28 +152,10 @@ function FormInner({ id, initial }: { id: string | undefined; initial: MonitorFo
           <button type="submit" disabled={isSubmitting || save.isPending}>
             {id ? "Save changes" : "Create monitor"}
           </button>
-          <button type="button" className="secondary" onClick={() => void testRequest()} disabled={probe.isPending}>
-            {probe.isPending ? "Testing…" : "Test request"}
-          </button>
           <Link to={id ? `/monitors/${id}` : "/"}>Cancel</Link>
         </div>
       </form>
 
-      {probe.error && <ErrorBox error={probe.error} />}
-      {probe.data && (
-        <section className="card" aria-live="polite" data-testid="probe-result">
-          <h2>
-            Test result <OutcomeBadge outcome={probe.data.outcome} />
-          </h2>
-          <p>{probe.data.explanation}</p>
-          <p className="muted">
-            {probe.data.http_status !== null && <>HTTP {probe.data.http_status} · </>}
-            {probe.data.resolved_ip && <>{probe.data.resolved_ip} · </>}
-            {probe.data.attempt_count} attempt{probe.data.attempt_count === 1 ? "" : "s"} · not saved
-          </p>
-          <Waterfall timings={probe.data.timings} />
-        </section>
-      )}
     </>
   );
 }

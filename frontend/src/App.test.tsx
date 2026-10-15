@@ -62,7 +62,7 @@ beforeEach(() => vi.unstubAllGlobals());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("api client", () => {
-  it("sends the CSRF header and parses problem+json", async () => {
+  it("sends cookies same-origin and parses problem+json", async () => {
     const spy = mockFetch(() =>
       json({ type: "x/validation", title: "Validation failed", status: 422, detail: "bad", errors: [{ field: "url", message: "nope" }] }, 422),
     );
@@ -70,7 +70,7 @@ describe("api client", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).fieldErrors).toEqual({ url: "nope" });
     const init = spy.mock.calls[0]?.[1] as RequestInit;
-    expect((init.headers as Record<string, string>)["X-Requested-With"]).toBe("signalnest");
+    expect(init.credentials).toBe("same-origin");
   });
 });
 

@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.api.ratelimit import FixedWindowLimiter
 from app.api.schemas import MonitorCreate
 from app.security import hash_password, new_session_token, token_hash, verify_password
 from app.services.cursor import BadCursor, decode_cursor, encode_cursor
@@ -26,27 +25,6 @@ def test_cursor_rejects_naive_timestamp() -> None:
     raw = base64.urlsafe_b64encode(json.dumps(["2026-01-01T00:00:00", 1]).encode()).decode()
     with pytest.raises(BadCursor):
         decode_cursor(raw)
-
-
-def test_limiter_window_and_reset() -> None:
-    now = [0.0]
-    lim = FixedWindowLimiter(2, 60, clock=lambda: now[0])
-    assert lim.hit("k") and lim.hit("k")
-    assert not lim.hit("k")
-    assert lim.retry_after("k") <= 61
-    assert lim.hit("other")  # keys are independent
-    now[0] = 61
-    assert lim.hit("k")  # new window
-    lim.reset("k")
-    assert not lim.blocked("k")
-
-
-def test_limiter_blocked_does_not_count() -> None:
-    lim = FixedWindowLimiter(1, 60)
-    assert not lim.blocked("k")
-    assert not lim.blocked("k")
-    assert lim.hit("k")
-    assert lim.blocked("k")
 
 
 def test_password_hash_is_argon2id_and_verifies() -> None:

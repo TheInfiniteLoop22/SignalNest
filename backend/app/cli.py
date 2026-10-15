@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import sys
 import uuid
 
 from sqlalchemy import select
@@ -10,11 +9,9 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Monitor, MonitorState, User
 from app.db.session import SessionLocal
-from app.probe.engine import run_probe
-from app.probe.types import ProbeRequest, ProbeResult
+from app.probe.types import ProbeResult
 from app.security import hash_password
-from app.services.probe_once import policy_from_settings, probe_monitor
-from app.worker import retention
+from app.services.probe_once import probe_monitor
 
 
 async def seed(url: str, name: str, interval: int, password: str) -> None:
@@ -64,53 +61,6 @@ def _print_attempts(result: ProbeResult) -> None:
         print(f"assert {r.type}: {verdict} expected={r.expected} actual={r.actual}")
 
 
-async def probe_url(url: str) -> None:
-    """Probe an arbitrary URL with this host's resolver/network and the real SSRF policy.
-
-    Runbook R2: tells you whether failures are the targets' or ours.
-    """
-    result = await run_probe(
-        ProbeRequest(url=url, timeout_ms=5000), policy=policy_from_settings(), retry_delay_s=0
-    )
-    _print_attempts(result)
-
-
-async def run_retention_cmd(dry_run: bool) -> None:
-    from datetime import UTC, datetime
-
-    cfg = get_settings()
-    now = datetime.now(UTC)
-    if dry_run:
-        async with SessionLocal() as session:
-            n = await retention.preview(session, retention_days=cfg.run_retention_days, now=now)
-        print(f"would delete {n} runs older than {cfg.run_retention_days} days (dry run)")
-        return
-    result = await retention.run_retention(
-        SessionLocal, retention_days=cfg.run_retention_days, now=now
-    )
-    print(f"deleted runs={result.runs} sessions={result.sessions} heartbeats={result.heartbeats}")
-
-
-async def create_user(email: str, password: str) -> int:
-    """Create an account without the public registration endpoint (prod keeps it closed)."""
-    from app.api.schemas import RegisterIn
-
-    try:
-        creds = RegisterIn(email=email, password=password)
-    except ValueError as exc:
-        print(f"invalid input: {exc}", file=sys.stderr)
-        return 2
-    async with SessionLocal() as session:
-        exists = await session.scalar(select(User.id).where(User.email == creds.email))
-        if exists:
-            print(f"user {creds.email} already exists", file=sys.stderr)
-            return 1
-        session.add(User(email=creds.email, password_hash=hash_password(creds.password)))
-        await session.commit()
-    print(f"created {creds.email}")
-    return 0
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -119,29 +69,11 @@ def main() -> None:
     p_seed.add_argument("--name", default="dev-ok")
     p_seed.add_argument("--interval", type=int, default=60)
     p_seed.add_argument("--password", default="dev-password-123")
-    p_url = sub.add_parser("probe-url")
-    p_url.add_argument("url")
-    p_ret = sub.add_parser("retention")
-    p_ret.add_argument("--dry-run", action="store_true")
-    p_user = sub.add_parser("create-user")
-    p_user.add_argument("--email", required=True)
-    p_user.add_argument(
-        "--password-stdin",
-        action="store_true",
-        required=True,
-        help="read the password from stdin (keeps it out of argv and shell history)",
-    )
     p_probe = sub.add_parser("probe")
     p_probe.add_argument("monitor_id", type=uuid.UUID)
     args = parser.parse_args()
     if args.cmd == "seed":
         asyncio.run(seed(args.url, args.name, args.interval, args.password))
-    elif args.cmd == "create-user":
-        raise SystemExit(asyncio.run(create_user(args.email, sys.stdin.readline().rstrip("\r\n"))))
-    elif args.cmd == "probe-url":
-        asyncio.run(probe_url(args.url))
-    elif args.cmd == "retention":
-        asyncio.run(run_retention_cmd(args.dry_run))
     else:
         asyncio.run(probe(args.monitor_id))
 

@@ -38,7 +38,7 @@ async def sessions(migrated_db: str) -> AsyncIterator[async_sessionmaker[AsyncSe
     maker = async_sessionmaker(engine, expire_on_commit=False)
     yield maker
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
+        await conn.execute(text("TRUNCATE users CASCADE"))
     await engine.dispose()
 
 
@@ -322,7 +322,6 @@ def make_worker(sessions: async_sessionmaker[AsyncSession], **kw: object) -> Wor
     params: dict[str, object] = {
         "policy": LOCAL,
         "poll_interval_s": 0.1,
-        "heartbeat_interval_s": 0.2,
         "shutdown_grace_s": 1.0,
     }
     params.update(kw)
@@ -347,7 +346,6 @@ async def test_worker_runs_due_monitors_once_per_slot(
                 )
             )
         ).all()
-        hb = await s.scalar(text("SELECT count(*) FROM worker_heartbeats WHERE worker_id='w1'"))
         leased = await s.scalar(
             text("SELECT count(*) FROM monitor_state WHERE lease_owner IS NOT NULL")
         )
@@ -355,7 +353,6 @@ async def test_worker_runs_due_monitors_once_per_slot(
     assert len(rows) == 5  # interval 30 s: exactly one run each in 2.5 s
     assert len({(r.monitor_id, r.scheduled_for) for r in rows}) == 5
     assert all(r.outcome == "PASS" for r in rows)
-    assert hb == 1
     assert leased == 0
 
 

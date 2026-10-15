@@ -35,7 +35,7 @@ async def session(migrated_db: str) -> AsyncIterator[AsyncSession]:
     async with async_sessionmaker(engine, expire_on_commit=False)() as s:
         yield s
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
+        await conn.execute(text("TRUNCATE users CASCADE"))
     await engine.dispose()
 
 
