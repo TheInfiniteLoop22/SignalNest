@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M5 (not started)
+CURRENT MILESTONE: M6 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -32,7 +32,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M2 | ✅ Done | 2026-10-15. 22 engine tests against real sockets + 37 unit tests; `mypy --strict app/probe` clean. ADR-017 written |
 | M3 | ✅ Done | 2026-10-15. ~55-case IP table + 28 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
 | M4 | ✅ Done | 2026-10-15. 16 worker integration tests (AC1-lite, AC2, AC3, AC11, AC12 + fencing); `docker compose up --scale worker=2` demo: 31 runs / 31 distinct slots, then SIGKILL of the worker mid-`/hang` probe -> lease expired and monitor rescheduled, 48 / 48. ADR-019 |
-| M5–M10 | ⬜ Not started | |
+| M5 | ✅ Done | 2026-10-15. 219 tests total pass locally; state machine (23 cases incl. AC9), hints (14 cases), Faultline scenario tests for AC7/AC10 incl. backdated `opened_at` and event sequence. ADR-020 incl. the pause decision |
+| M6–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -71,6 +72,11 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M4 | Added shared SSL context in the engine | Per-probe CA-bundle loading blocked the event loop badly enough that 30 concurrent probes stalled for seconds |
 | 2026-10-15 | M4 | `docker-compose.yml` now has migrate/api/worker/faultline, Dockerfile with 4 targets | Needed for `--scale worker=2`; frontend stage and prod compose come later |
 | 2026-10-15 | M4 | Learner-owned claim SQL and `next_run_at` function written by Claude | Autonomous workflow |
+| 2026-10-15 | M5 | Streak/incident counters stored in `monitor_state` (jsonb class-count maps) instead of recomputed from runs | Keeps `evaluate` pure and O(1); documented in ADR-020 |
+| 2026-10-15 | M5 | `incidents` has no `class_counts` column; class counts for the API are derived from FAIL runs between the first failure and resolution | Single source of truth is `check_runs` for evidence, state for live counting |
+| 2026-10-15 | M5 | Hint rules: all eight implemented plus `H_NO_BASELINE`; baseline needs >=20 PASS runs | Spec lists eight; an explicit "not enough history" hint is the honest fallback it describes |
+| 2026-10-15 | M5 | Not done: `/flaky` threshold demo test; `slow_db` scenario hint test | `/flaky` exists in Faultline but is not asserted; `H_SERVER_SLOW` is unit-tested with synthetic baselines rather than a 20-run Faultline warm-up (would add ~minutes) |
+| 2026-10-15 | M5 | Learner-owned `evaluate()` and two hint rules written by Claude | Autonomous workflow |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

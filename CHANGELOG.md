@@ -10,3 +10,4 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - M2: probe engine (`app/probe`: phase timings, failure taxonomy, assertions, retry, body cap, header allow-list), Faultline v1 + socket faults, migration 0002, CLI phase table, ADR-017.
 - M3: SSRF guard (`app/probe/ssrf.py`) with IP-pinned connections, port/hostname rules, `SSRF_ALLOW_PRIVATE_CIDRS` dev override, rebinding and TLS-by-IP tests, ADR-018.
 - M4: durable worker (`app/worker`): SKIP LOCKED claim with leases, fenced idempotent completion, bounded concurrency, heartbeat, graceful shutdown, DB-outage backoff; Dockerfile and compose services; ADR-019.
+- M5: incidents (pure state machine, `incidents`/`incident_events`, one-open-incident unique index, evidence builder, diagnosis hints), applied transactionally in TX2; ADR-020.

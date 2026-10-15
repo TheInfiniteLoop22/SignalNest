@@ -41,6 +41,8 @@ class Monitor(Base):
         CheckConstraint("method IN ('GET','HEAD')", name="method"),
         CheckConstraint("interval_seconds BETWEEN 1 AND 3600", name="interval"),
         CheckConstraint("timeout_ms BETWEEN 1000 AND 30000", name="timeout"),
+        CheckConstraint("failure_threshold BETWEEN 1 AND 10", name="failure_threshold"),
+        CheckConstraint("recovery_threshold BETWEEN 1 AND 10", name="recovery_threshold"),
         Index("ix_monitors_owner_created", "owner_id", "created_at"),
     )
 
@@ -58,6 +60,8 @@ class Monitor(Base):
         JSONB, server_default=text("'[]'::jsonb")
     )
     degraded_ms: Mapped[int | None]
+    failure_threshold: Mapped[int] = mapped_column(SmallInteger, server_default="3")
+    recovery_threshold: Mapped[int] = mapped_column(SmallInteger, server_default="2")
     is_paused: Mapped[bool] = mapped_column(server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
@@ -77,6 +81,17 @@ class MonitorState(Base):
     health: Mapped[str] = mapped_column(Text, server_default="UNKNOWN")
     lease_owner: Mapped[str | None] = mapped_column(Text)
     lease_expires_at: Mapped[datetime | None] = mapped_column(TZ)
+    consecutive_failures: Mapped[int] = mapped_column(server_default="0")
+    consecutive_successes: Mapped[int] = mapped_column(server_default="0")
+    incident_open: Mapped[bool] = mapped_column(server_default=text("false"))
+    streak_first_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    streak_first_at: Mapped[datetime | None] = mapped_column(TZ)
+    streak_class_counts: Mapped[dict[str, int]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
+    incident_class_counts: Mapped[dict[str, int]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
     last_run_id: Mapped[int | None] = mapped_column(BigInteger)
     last_run_at: Mapped[datetime | None] = mapped_column(TZ)
 
@@ -132,3 +147,52 @@ class WorkerHeartbeat(Base):
     version: Mapped[str] = mapped_column(Text)
     in_flight: Mapped[int] = mapped_column(server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class Incident(Base):
+    __tablename__ = "incidents"
+    __table_args__ = (
+        CheckConstraint("status IN ('OPEN','RESOLVED')", name="status"),
+        Index(
+            "one_open_incident",
+            "monitor_id",
+            unique=True,
+            postgresql_where=text("status = 'OPEN'"),
+        ),
+        Index("ix_incidents_monitor_opened", "monitor_id", "opened_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    monitor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(Text)
+    opened_at: Mapped[datetime] = mapped_column(TZ)
+    resolved_at: Mapped[datetime | None] = mapped_column(TZ)
+    first_failure_run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("check_runs.id", ondelete="RESTRICT")
+    )
+    resolving_run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("check_runs.id", ondelete="RESTRICT")
+    )
+    failure_count: Mapped[int]
+    dominant_failure_class: Mapped[str] = mapped_column(Text)
+
+
+class IncidentEvent(Base):
+    __tablename__ = "incident_events"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('OPENED','FAILURE_CLASS_CHANGED','RECOVERING','RESOLVED')", name="kind"
+        ),
+        Index("ix_incident_events_incident_at", "incident_id", "at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"))
+    at: Mapped[datetime] = mapped_column(TZ)
+    kind: Mapped[str] = mapped_column(Text)
+    run_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("check_runs.id", ondelete="RESTRICT")
+    )
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
