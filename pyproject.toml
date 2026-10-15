@@ -9,7 +9,6 @@ dependencies = [
     "asyncpg>=0.32.0",
     "fastapi>=0.143.2",
     "httpx>=0.28.1",
-    "prometheus-client>=0.26.0",
     "pydantic-settings>=2.16.0",
     "sqlalchemy[asyncio]>=2.1.4",
     "uvicorn[standard]>=0.54.0",
@@ -23,7 +22,6 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "trustme>=1.2.1",
     "pytest-cov>=7.1.0",
-    "pip-audit>=2.10.1",
 ]
 
 [tool.uv]
