@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M6 (not started)
+CURRENT MILESTONE: M7 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -33,7 +33,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M3 | ✅ Done | 2026-10-15. ~55-case IP table + 28 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
 | M4 | ✅ Done | 2026-10-15. 16 worker integration tests (AC1-lite, AC2, AC3, AC11, AC12 + fencing); `docker compose up --scale worker=2` demo: 31 runs / 31 distinct slots, then SIGKILL of the worker mid-`/hang` probe -> lease expired and monitor rescheduled, 48 / 48. ADR-019 |
 | M5 | ✅ Done | 2026-10-15. 219 tests total pass locally; state machine (23 cases incl. AC9), hints (14 cases), Faultline scenario tests for AC7/AC10 incl. backdated `opened_at` and event sequence. ADR-020 incl. the pause decision |
-| M6–M10 | ⬜ Not started | |
+| M6 | ✅ Done | 2026-10-15. 268 tests total pass locally (49 new: 40 API integration + 9 unit). Auth, monitor CRUD/pause/resume/check, runs (keyset), stats, incidents, run detail, probe test, problem+json, IDOR crawler (AC8), SSRF create-time rejection (AC6). ADR-021 |
+| M7–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -77,6 +78,13 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M5 | Hint rules: all eight implemented plus `H_NO_BASELINE`; baseline needs >=20 PASS runs | Spec lists eight; an explicit "not enough history" hint is the honest fallback it describes |
 | 2026-10-15 | M5 | Not done: `/flaky` threshold demo test; `slow_db` scenario hint test | `/flaky` exists in Faultline but is not asserted; `H_SERVER_SLOW` is unit-tested with synthetic baselines rather than a 20-run Faultline warm-up (would add ~minutes) |
 | 2026-10-15 | M5 | Learner-owned `evaluate()` and two hint rules written by Claude | Autonomous workflow |
+| 2026-10-15 | M6 | Rate-limit state is in-process (spec allowed in-DB or in-memory) | Simplest correct option; limitation stated in code and ADR-021 |
+| 2026-10-15 | M6 | `/healthz`, `/readyz`, `/metrics`, `/system/status` not built here | They are M8 deliverables (F11/F13); `docs/06` lists them but the plan schedules them there |
+| 2026-10-15 | M6 | Monitor list filters `?health=` in Python after the query | Max 50 monitors per user; avoids a second SQL path |
+| 2026-10-15 | M6 | A name that does not resolve at create time is accepted | A target may not be deployed yet; execution re-validates |
+| 2026-10-15 | M6 | OpenAPI "complete" is auto-generated; response examples not hand-written | Models are typed; examples can be added in M10 |
+| 2026-10-15 | M6 | Learner-owned keyset cursor/runs query and stats SQL written by Claude | Autonomous workflow |
+| 2026-10-15 | M6 | Seeded dev users from M1-M5 have an unusable `!` password hash until reseeded with the CLI | Auth needs a hash; reseed with `python -m app.cli seed --password ...` |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

@@ -32,9 +32,7 @@ async def sessions(migrated_db: str):  # type: ignore[no-untyped-def]
     maker = async_sessionmaker(engine, expire_on_commit=False)
     yield maker
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE users, monitors, monitor_state, check_runs, worker_heartbeats CASCADE")
-        )
+        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
     await engine.dispose()
 
 
@@ -42,7 +40,7 @@ async def make_monitor(
     sessions: async_sessionmaker[AsyncSession], url: str, **kw: object
 ) -> uuid.UUID:
     async with sessions() as s:
-        u = User(email=f"{uuid.uuid4().hex[:6]}@t.test")
+        u = User(email=f"{uuid.uuid4().hex[:6]}@t.test", password_hash="!")
         s.add(u)
         await s.flush()
         m = Monitor(owner_id=u.id, name="m", url=url, interval_seconds=30, timeout_ms=1000, **kw)

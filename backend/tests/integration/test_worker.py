@@ -38,9 +38,7 @@ async def sessions(migrated_db: str) -> AsyncIterator[async_sessionmaker[AsyncSe
     maker = async_sessionmaker(engine, expire_on_commit=False)
     yield maker
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE users, monitors, monitor_state, check_runs, worker_heartbeats CASCADE")
-        )
+        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
     await engine.dispose()
 
 
@@ -63,7 +61,7 @@ async def make_monitors(sessions: async_sessionmaker[AsyncSession]) -> MakeMonit
                 text("SELECT id FROM users WHERE email = :e"), {"e": get_settings().dev_user_email}
             )
             if user is None:
-                u = User(email=get_settings().dev_user_email)
+                u = User(email=get_settings().dev_user_email, password_hash="!")
                 s.add(u)
                 await s.flush()
                 user = u.id

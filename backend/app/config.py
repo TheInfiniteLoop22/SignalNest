@@ -9,17 +9,32 @@ class Settings(BaseSettings):
     env: str = "dev"
     database_url: str = "postgresql+asyncpg://signalnest:change-me@localhost:5432/signalnest"
     log_level: str = "INFO"
+
+    # worker
     worker_id: str = ""  # empty -> "<hostname>-<pid>"
     max_concurrency: int = 20
     poll_interval_ms: int = 1000
     claim_batch_max: int = 50
     shutdown_grace_s: int = 20
     heartbeat_interval_s: int = 10
+
     # SSRF guard (docs/09 section 3). The CIDR override is for dev/test only; empty in prod.
     allowed_ports: str = "80,443,8000-8999"
     ssrf_allow_private_cidrs: str = ""
     allowed_hosts: str = ""
-    # Until auth lands in M6, every request acts as this seeded user.
+
+    # auth / sessions
+    allow_registration: bool = True
+    session_ttl_hours: int = 168
+    cookie_secure: bool = False  # set true behind HTTPS (prod)
+    expose_docs: bool = True
+
+    # limits
+    max_monitors_per_user: int = 50
+    max_monitors_per_host: int = 5
+    min_interval_s: int = 30  # tests lower this
+
+    # Seed/CLI convenience only.
     dev_user_email: str = "dev@signalnest.local"
 
 

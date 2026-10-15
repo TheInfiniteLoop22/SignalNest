@@ -35,15 +35,13 @@ async def session(migrated_db: str) -> AsyncIterator[AsyncSession]:
     async with async_sessionmaker(engine, expire_on_commit=False)() as s:
         yield s
     async with engine.begin() as conn:
-        await conn.execute(
-            text("TRUNCATE users, monitors, monitor_state, check_runs, worker_heartbeats CASCADE")
-        )
+        await conn.execute(text("TRUNCATE users, worker_heartbeats CASCADE"))
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def seeded(session: AsyncSession) -> tuple[User, Monitor]:
-    user = User(email=get_settings().dev_user_email)
+    user = User(email=get_settings().dev_user_email, password_hash="!")
     session.add(user)
     await session.flush()
     monitor = Monitor(owner_id=user.id, name="m", url="http://faultline.test/ok")

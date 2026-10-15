@@ -9,15 +9,16 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.models import Monitor, MonitorState, User
 from app.db.session import SessionLocal
+from app.security import hash_password
 from app.services.probe_once import probe_monitor
 
 
-async def seed(url: str, name: str, interval: int) -> None:
+async def seed(url: str, name: str, interval: int, password: str) -> None:
     settings = get_settings()
     async with SessionLocal() as session:
         user = await session.scalar(select(User).where(User.email == settings.dev_user_email))
         if user is None:
-            user = User(email=settings.dev_user_email)
+            user = User(email=settings.dev_user_email, password_hash=hash_password(password))
             session.add(user)
             await session.flush()
         monitor = await session.scalar(
@@ -61,11 +62,12 @@ def main() -> None:
     p_seed.add_argument("--url", default="http://localhost:8001/ok")
     p_seed.add_argument("--name", default="dev-ok")
     p_seed.add_argument("--interval", type=int, default=60)
+    p_seed.add_argument("--password", default="dev-password-123")
     p_probe = sub.add_parser("probe")
     p_probe.add_argument("monitor_id", type=uuid.UUID)
     args = parser.parse_args()
     if args.cmd == "seed":
-        asyncio.run(seed(args.url, args.name, args.interval))
+        asyncio.run(seed(args.url, args.name, args.interval, args.password))
     else:
         asyncio.run(probe(args.monitor_id))
 

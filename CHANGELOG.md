@@ -11,3 +11,4 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - M3: SSRF guard (`app/probe/ssrf.py`) with IP-pinned connections, port/hostname rules, `SSRF_ALLOW_PRIVATE_CIDRS` dev override, rebinding and TLS-by-IP tests, ADR-018.
 - M4: durable worker (`app/worker`): SKIP LOCKED claim with leases, fenced idempotent completion, bounded concurrency, heartbeat, graceful shutdown, DB-outage backoff; Dockerfile and compose services; ADR-019.
 - M5: incidents (pure state machine, `incidents`/`incident_events`, one-open-incident unique index, evidence builder, diagnosis hints), applied transactionally in TX2; ADR-020.
+- M6: auth (argon2id, hashed server-side sessions, CSRF header), monitor CRUD/pause/resume/check-now with SSRF pre-check and caps, runs (keyset pagination), stats, incidents, run detail, `/probe/test`, problem+json errors, IDOR route-crawler test; ADR-021.

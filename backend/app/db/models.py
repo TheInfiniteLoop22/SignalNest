@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import INET, JSONB, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import BYTEA, INET, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -29,7 +29,26 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     email: Mapped[str] = mapped_column(Text, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+    __table_args__ = (
+        Index("ix_sessions_user_id", "user_id"),
+        Index("ix_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[bytes] = mapped_column(BYTEA, unique=True)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(TZ)
+    last_seen_at: Mapped[datetime | None] = mapped_column(TZ)
+    revoked_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 class Monitor(Base):

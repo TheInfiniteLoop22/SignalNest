@@ -151,3 +151,16 @@ stateDiagram-v2
 - **Hints** are pure rules over `IncidentFacts` (`incidents/hints.py`); the baseline is the 7-day median of PASS runs before `opened_at`, and with fewer than 20 samples a timing failure yields `H_NO_BASELINE` rather than a guess. `build_incident_evidence` assembles first/latest failing run, class counts, baseline and hints for the API in M6.
 - **Interview Qs:** draw the machine (see ADR-007 diagram); why two thresholds (hysteresis); what the partial unique index protects against; why counts are state; what pausing should mean.
 
+## ADR-021 — API layer decisions (M6)
+- **Password hashing:** `argon2-cffi` (argon2id, library defaults), run via `asyncio.to_thread` so ~tens of ms of CPU do not block the event loop. Unknown emails verify against a dummy hash so login cost and the response are the same either way; the error is a generic 401.
+- **Sessions:** 32-byte URL-safe token in an `HttpOnly; SameSite=Lax` cookie (`Secure` when `COOKIE_SECURE`), SHA-256 stored in `sessions`, server-side expiry and revocation, `last_seen_at` written at most once a minute.
+- **CSRF:** `SameSite=Lax` plus a required `X-Requested-With: signalnest` header on every unsafe method (a cross-site form cannot set it). Applied by a router dependency, including login and register.
+- **Rate limits:** in-process fixed windows (login 5 failures / 15 min per email+IP, probe test 6/min per user, check-now 1/10 s per monitor). Limitation recorded in `ratelimit.py`: with N API replicas the effective limit is N times higher and a restart resets it. Fixed windows allow a burst of 2x at a window boundary; acceptable here.
+- **Ownership:** every monitor/run/incident lookup filters by `owner_id` (runs and incidents via a join through `monitors`) and returns 404. A route-crawler test walks the OpenAPI document and requires 404 for a second user on every route with an id parameter.
+- **SSRF pre-check at create/edit:** static URL rules, literal IP check, and resolution of the hostname; any denied address -> 422 `blocked-target`. A name that does not resolve yet is accepted (the service may not be deployed). Execution still re-checks on every attempt.
+- **Pagination:** keyset on `(started_at, id)` for runs and `(is_open, opened_at, id)` for incidents, opaque base64 cursors. A test inserts a run between page fetches and shows the next page does not shift (offset pagination would).
+- **Uptime definition:** `(PASS + DEGRADED) / (PASS + DEGRADED + FAIL)` over the window; `INCONCLUSIVE` is excluded. Limits: it counts *checks*, not time, so it is only comparable between monitors with similar intervals; a monitor with few samples is noisy; paused periods contribute no samples. Latency percentiles use healthy runs only so timeouts do not look like latency.
+- **Delete:** incidents are removed explicitly before the monitor because `incidents -> check_runs` is `ON DELETE RESTRICT`.
+- **Interval floor:** `MIN_INTERVAL_S` (default 30) enforced in the API; the DB check only requires 1-3600 so tests can use short intervals.
+- **Docs UI:** `/api/docs` is controlled by `EXPOSE_DOCS`.
+
