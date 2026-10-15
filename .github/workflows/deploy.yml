@@ -1,0 +1,61 @@
+name: deploy
+
+# Manual deploy to the single VM described in docs/13_REPO_AND_DEVOPS.md section 5.
+# It does nothing until the repository secrets below exist, and it never runs automatically.
+#
+# Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY (private key), DEPLOY_KNOWN_HOSTS
+# (output of `ssh-keyscan -t ed25519 <host>`, checked in advance, so the host key is pinned).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref (tag or commit) to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency: deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check secrets are configured
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$HOST" ]; then echo "DEPLOY_HOST is not set; nothing to deploy to." >&2; exit 1; fi
+
+      - name: Install SSH key and pin host key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+          REF: ${{ inputs.ref }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$TARGET" \
+            bash -s -- "$REF" <<'REMOTE'
+          set -euo pipefail
+          REF="$1"
+          cd /opt/signalnest/app
+          git fetch --tags --prune origin
+          git checkout --detach "$REF"
+          C="docker compose -f docker-compose.prod.yml --env-file /opt/signalnest/.env.prod"
+          $C build
+          # Migrate first (one-shot), then worker, then api: the previous release must keep
+          # working against the migrated schema (expand -> migrate -> contract).
+          $C run --rm migrate
+          $C up -d worker
+          $C up -d api caddy
+          $C ps
+          curl -fsS --retry 10 --retry-delay 3 http://127.0.0.1/healthz >/dev/null || \
+            curl -fsSk --retry 10 --retry-delay 3 https://localhost/healthz
+          REMOTE

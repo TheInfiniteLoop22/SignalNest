@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import sys
 import uuid
 
 from sqlalchemy import select
@@ -90,6 +91,26 @@ async def run_retention_cmd(dry_run: bool) -> None:
     print(f"deleted runs={result.runs} sessions={result.sessions} heartbeats={result.heartbeats}")
 
 
+async def create_user(email: str, password: str) -> int:
+    """Create an account without the public registration endpoint (prod keeps it closed)."""
+    from app.api.schemas import RegisterIn
+
+    try:
+        creds = RegisterIn(email=email, password=password)
+    except ValueError as exc:
+        print(f"invalid input: {exc}", file=sys.stderr)
+        return 2
+    async with SessionLocal() as session:
+        exists = await session.scalar(select(User.id).where(User.email == creds.email))
+        if exists:
+            print(f"user {creds.email} already exists", file=sys.stderr)
+            return 1
+        session.add(User(email=creds.email, password_hash=hash_password(creds.password)))
+        await session.commit()
+    print(f"created {creds.email}")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -102,11 +123,21 @@ def main() -> None:
     p_url.add_argument("url")
     p_ret = sub.add_parser("retention")
     p_ret.add_argument("--dry-run", action="store_true")
+    p_user = sub.add_parser("create-user")
+    p_user.add_argument("--email", required=True)
+    p_user.add_argument(
+        "--password-stdin",
+        action="store_true",
+        required=True,
+        help="read the password from stdin (keeps it out of argv and shell history)",
+    )
     p_probe = sub.add_parser("probe")
     p_probe.add_argument("monitor_id", type=uuid.UUID)
     args = parser.parse_args()
     if args.cmd == "seed":
         asyncio.run(seed(args.url, args.name, args.interval, args.password))
+    elif args.cmd == "create-user":
+        raise SystemExit(asyncio.run(create_user(args.email, sys.stdin.readline().rstrip("\r\n"))))
     elif args.cmd == "probe-url":
         asyncio.run(probe_url(args.url))
     elif args.cmd == "retention":

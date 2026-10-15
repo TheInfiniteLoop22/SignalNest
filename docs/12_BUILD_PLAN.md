@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M9 (not started)
+CURRENT MILESTONE: M9 (build + local verification done; cloud provisioning needs the owner)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -36,7 +36,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M6 | ✅ Done | 2026-10-15. 268 tests total pass locally (49 new: 40 API integration + 9 unit). Auth, monitor CRUD/pause/resume/check, runs (keyset), stats, incidents, run detail, probe test, problem+json, IDOR crawler (AC8), SSRF create-time rejection (AC6). ADR-021 |
 | M7 | ✅ Done | 2026-10-15. 44 Vitest tests, `tsc --noEmit` clean, `vite build` ok; live check against real API + worker + Faultline: outage -> incident in ~3 s with `H_5XX`, recovery -> resolved in ~3 s, `169.254.169.254` -> `blocked-target`. ADR-022 |
 | M8 | ✅ Done | 2026-10-15. 292 backend tests + 49 frontend tests pass. JSON logs with request/run/monitor/worker ids, `/healthz`, `/readyz`, `/metrics`, System page + endpoint, retention with `job_runs`, DB-outage recovery test, runbook rewritten with real commands. ADR-023 |
-| M9–M10 | ⬜ Not started | |
+| M9 | 🟡 Built and verified locally | 2026-10-15. Prod compose/Caddy/backup/restore/deploy workflow done and exercised on Docker Desktop. **Not done: provision a VM, DNS, public HTTPS, firewall, object-storage backups** (requires your cloud account and domain). ADR-024, `docs/13` section 5 |
+| M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -99,6 +100,12 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M8 | Added runbook R7 (worker killed) and CLI `probe-url`, `retention` | R2 referenced `probe-url`; R4 referenced `retention --dry-run` |
 | 2026-10-15 | M8 | Migration 0003 downgrade now clamps intervals below 30 s | Downgrade failed on rows created under the relaxed rule; lossy, noted in the runbook |
 | 2026-10-15 | M8 | Learner-owned metric-label choice written by Claude | Autonomous workflow |
+| 2026-10-15 | M9 | **No cloud VM provisioned; no public URL; provider (AWS/Azure/GCP/Render) not chosen** | Needs your account, billing and a domain; the readiness question was never answered. Everything provider-neutral is built and tested locally |
+| 2026-10-15 | M9 | Restore drill run locally against a tiny dataset (26 KB dump, 5 s) | Not a recovery-time estimate; re-run on the real host and record there. The "documented with timestamps" criterion is met for local only |
+| 2026-10-15 | M9 | Deploy workflow is untested (no host) | Written to be inert without secrets; first real run will need a shake-down |
+| 2026-10-15 | M9 | Firewall/restore-drill steps the plan marks learner-owned were written by Claude | Autonomous workflow |
+| 2026-10-15 | M9 | Added `create-user --password-stdin` CLI | Prod registration is closed, so accounts need another path |
+| 2026-10-15 | M9 | CI `ops` job: shellcheck (warning+), compose config, Caddyfile validate, image builds | Keeps deployment files from rotting between deploys |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

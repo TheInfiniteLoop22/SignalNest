@@ -25,3 +25,5 @@ frontend/dist/
 Thumbs.db
 
 frontend/node_modules/
+
+!.env.prod.example
