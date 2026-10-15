@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M8 (not started)
+CURRENT MILESTONE: M9 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -35,7 +35,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M5 | ✅ Done | 2026-10-15. 219 tests total pass locally; state machine (23 cases incl. AC9), hints (14 cases), Faultline scenario tests for AC7/AC10 incl. backdated `opened_at` and event sequence. ADR-020 incl. the pause decision |
 | M6 | ✅ Done | 2026-10-15. 268 tests total pass locally (49 new: 40 API integration + 9 unit). Auth, monitor CRUD/pause/resume/check, runs (keyset), stats, incidents, run detail, probe test, problem+json, IDOR crawler (AC8), SSRF create-time rejection (AC6). ADR-021 |
 | M7 | ✅ Done | 2026-10-15. 44 Vitest tests, `tsc --noEmit` clean, `vite build` ok; live check against real API + worker + Faultline: outage -> incident in ~3 s with `H_5XX`, recovery -> resolved in ~3 s, `169.254.169.254` -> `blocked-target`. ADR-022 |
-| M8–M10 | ⬜ Not started | |
+| M8 | ✅ Done | 2026-10-15. 292 backend tests + 49 frontend tests pass. JSON logs with request/run/monitor/worker ids, `/healthz`, `/readyz`, `/metrics`, System page + endpoint, retention with `job_runs`, DB-outage recovery test, runbook rewritten with real commands. ADR-023 |
+| M9–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -92,6 +93,12 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M7 | Bundle ~700 kB, no code splitting | Recharts dominates; acceptable for an internal tool, noted in ADR-022 |
 | 2026-10-15 | M7 | Phase waterfall component written by Claude (learner-owned in plan) | Autonomous workflow |
 | 2026-10-15 | M7 | CI gained a `frontend` job (typecheck, tests, build) | Required by the testing plan's quality gates |
+| 2026-10-15 | M8 | Worker metrics are served on a separate internal port (9100), the API on `/metrics` | Two processes, two registries; a single scrape target would need a push gateway or multiprocess mode |
+| 2026-10-15 | M8 | `monitor_id` is not a metric label (the learner-owned choice) | Cardinality; reasoning in ADR-023 and enforced by a unit test |
+| 2026-10-15 | M8 | Runbook scenario answers were checked by reading code and unit/integration tests, not by a timed drill | No production environment yet; do a real drill after M9 |
+| 2026-10-15 | M8 | Added runbook R7 (worker killed) and CLI `probe-url`, `retention` | R2 referenced `probe-url`; R4 referenced `retention --dry-run` |
+| 2026-10-15 | M8 | Migration 0003 downgrade now clamps intervals below 30 s | Downgrade failed on rows created under the relaxed rule; lossy, noted in the runbook |
+| 2026-10-15 | M8 | Learner-owned metric-label choice written by Claude | Autonomous workflow |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

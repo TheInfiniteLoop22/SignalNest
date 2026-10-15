@@ -61,6 +61,8 @@ def downgrade() -> None:
     op.drop_index("ix_state_due", "monitor_state")
     op.drop_column("monitor_state", "lease_expires_at")
     op.drop_column("monitor_state", "lease_owner")
+    # Lossy by necessity: rows created under the relaxed rule may be below the old floor.
+    op.execute("UPDATE monitors SET interval_seconds = 30 WHERE interval_seconds < 30")
     op.drop_constraint("interval", "monitors", type_="check")
     op.create_check_constraint("interval", "monitors", "interval_seconds BETWEEN 30 AND 3600")
     op.drop_column("monitors", "is_paused")

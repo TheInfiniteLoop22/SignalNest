@@ -4,10 +4,12 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from app.api import auth, incidents, monitors, probe, runs
+from app.api import auth, incidents, monitors, probe, runs, system
 from app.api.errors import install_error_handlers
 from app.api.ratelimit import FixedWindowLimiter
 from app.config import get_settings
+from app.observability.logging import setup_logging
+from app.observability.middleware import ObservabilityMiddleware
 
 SECURITY_HEADERS = {
     # The SPA is same-origin and ships no third-party scripts. Inline styles are allowed
@@ -37,7 +39,7 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str) -> Response:
-        if path.startswith("api/"):  # unknown API paths stay JSON 404s
+        if path.startswith("api/") or path in ("healthz", "readyz", "metrics"):
             return Response(status_code=404)
         candidate = (root / path).resolve()
         # Only serve files that are inside the static root (no ../ escapes).
@@ -48,6 +50,7 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    setup_logging("api", settings.log_level)
     app = FastAPI(
         title="SignalNest",
         docs_url="/api/docs" if settings.expose_docs else None,
@@ -56,6 +59,7 @@ def create_app() -> FastAPI:
     )
     install_error_handlers(app)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(ObservabilityMiddleware)  # outermost: times everything below
     # In-process fixed windows (see ratelimit.py for the multi-replica limitation).
     app.state.limiters = {
         "login": FixedWindowLimiter(limit=5, window_s=15 * 60),
@@ -65,7 +69,9 @@ def create_app() -> FastAPI:
     api = APIRouter(prefix="/api/v1")
     for module in (auth, monitors, runs, probe, incidents):
         api.include_router(module.router)
+    api.include_router(system.api)
     app.include_router(api)
+    app.include_router(system.root)
 
     if settings.static_dir and (Path(settings.static_dir) / "index.html").is_file():
         _mount_spa(app, Path(settings.static_dir))

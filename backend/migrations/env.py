@@ -11,7 +11,9 @@ from app.db.base import Base
 
 config = context.config
 if config.config_file_name:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: do not silence the application loggers when migrations
+    # run in-process (tests, dev), which the default would do.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 target_metadata = Base.metadata
 
 

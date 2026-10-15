@@ -37,30 +37,51 @@ Example:
 
 ## 5. Runbook
 
-### R1 — "No new runs for several minutes"
-1. System page: any worker with `last_seen_at` < 30 s ago? If none → `docker compose ps worker`, `docker compose logs --tail=200 worker`.
-2. Worker alive but lag rising → check `in_flight_probes` vs `MAX_CONCURRENCY` (saturated by hanging targets?) and `db_errors_total`.
-3. Leases stuck? `SELECT monitor_id, lease_owner, lease_expires_at FROM monitor_state WHERE lease_owner IS NOT NULL ORDER BY lease_expires_at;` — expired leases should be reclaimed automatically; if not, the claim query is broken.
-4. Are all monitors paused? `SELECT count(*) FILTER (WHERE is_paused) FROM monitors;`
+Conventions: commands run from the repo root; `docker compose` is the dev/prod-compose CLI. The
+database is reachable with `docker compose exec db psql -U signalnest`. Every log line is JSON,
+so `| jq` works (`docker compose logs --no-log-prefix worker | jq 'select(.level=="ERROR")'`).
 
-### R2 — "Everything is failing at once"
-1. Failure class distribution in the last 10 min. All `DNS_*` or `CONNECT_TIMEOUT` across unrelated hosts → likely **our** network/DNS, not targets.
-2. From the worker container: `python -m app.cli probe-url https://example.com` (or the canary, next iteration).
-3. If ours: note the period in the incident notes; next iteration's canary automates `INCONCLUSIVE` marking.
+### R1 - "No new runs for several minutes"
+Look in this order; stop at the first thing that is wrong.
+1. **System page** (`/system`) or `GET /api/v1/system/status`: is any worker `alive` (seen < 30 s ago)?
+   - None: `docker compose ps worker`, then `docker compose logs --tail=200 worker`. Look for `db.unavailable` (R3), a crash loop, or no `worker.started`.
+2. Worker alive but `scheduler.lag_seconds` rising: probes are saturating the worker.
+   - `curl -s localhost:9100/metrics | grep -E "in_flight|lag"` from inside the worker container (`docker compose exec worker python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:9100/metrics').read().decode())" | grep signalnest_`).
+   - `in_flight` pinned at `MAX_CONCURRENCY` means hanging targets are holding slots (each holds one for up to its timeout). Raise `MAX_CONCURRENCY` or lower the offending monitors' timeouts; add `--scale worker=2`.
+3. Stuck leases (should expire by themselves):
+   `SELECT monitor_id, lease_owner, lease_expires_at FROM monitor_state WHERE lease_owner IS NOT NULL ORDER BY lease_expires_at;`
+   A lease older than its expiry that is never reclaimed means the claim query is failing: check worker logs for `db.unavailable`.
+4. Everything paused? `SELECT count(*) FILTER (WHERE is_paused) AS paused, count(*) AS total FROM monitors;`
+5. Due but not claimed: `SELECT count(*), min(next_run_at) FROM monitor_state WHERE next_run_at <= now() AND lease_owner IS NULL;`
 
-### R3 — "Database unavailable"
-1. `/readyz` 503; worker logs `db.unavailable` with backoff.
-2. `docker compose logs db`; disk space (`df -h`) — the most common cause on small VMs.
-3. After recovery: confirm runs resume and no duplicates: `SELECT monitor_id, scheduled_for, count(*) FROM check_runs GROUP BY 1,2 HAVING count(*)>1;` (should be empty — the unique constraint makes it impossible).
+### R2 - "Everything is failing at once"
+1. Class distribution, last 10 minutes:
+   `SELECT failure_class, count(*) FROM check_runs WHERE started_at > now() - interval '10 minutes' AND outcome='FAIL' GROUP BY 1 ORDER BY 2 DESC;`
+   All `DNS_*` / `CONNECT_TIMEOUT` across unrelated hosts points at **our** network or resolver.
+2. From the worker's own network: `docker compose exec worker python -m app.cli probe-url https://example.com` (needs `ALLOWED_PORTS` to include 443 and egress). A failure here is ours.
+3. If ours: note the window. Incidents opened during it are real records but not target faults; the next-iteration canary will mark them `INCONCLUSIVE` automatically.
 
-### R4 — "Disk filling up"
-1. `SELECT pg_size_pretty(pg_total_relation_size('check_runs'));`
-2. Check `job_runs` for retention failures; run `python -m app.cli retention --dry-run`.
-3. Lower `RUN_RETENTION_DAYS` or add rollups (next iteration).
+### R3 - "Database unavailable"
+1. `curl -i localhost:8000/readyz` returns 503 `{"reason":"database"}`; `/healthz` stays 200 (do not restart the API for this). Worker logs `db.unavailable` with a growing `backoff_s` (1 s -> 30 s).
+2. `docker compose logs --tail=100 db` and `df -h` on the host (a full disk is the most common cause on small VMs).
+3. After recovery the worker resumes by itself; no restart is needed. Verify no duplicates (should be impossible, the unique constraint prevents it):
+   `SELECT monitor_id, scheduled_for, count(*) FROM check_runs GROUP BY 1,2 HAVING count(*) > 1;`
+4. In-flight probes during the outage were discarded and their slots re-run after the lease expired: expect a short burst, not a backlog.
 
-### R5 — "Suspected SSRF attempt"
-1. Search logs for `BLOCKED_BY_POLICY`; group by user.
-2. Disable the account (set sessions revoked), keep evidence, review whether any blocked request reached the network (it shouldn't: the guard runs before connect).
+### R4 - "Disk filling up"
+1. `SELECT pg_size_pretty(pg_total_relation_size('check_runs'));` and `SELECT pg_size_pretty(pg_database_size('signalnest'));`
+2. Did retention run? `SELECT * FROM job_runs WHERE job_name='retention' ORDER BY started_at DESC LIMIT 5;` (also on the System page). A non-null `error` explains why not.
+3. Preview, then run: `docker compose exec worker python -m app.cli retention --dry-run` then without `--dry-run`.
+4. Runs referenced by an incident are kept by design; if those dominate, resolve or delete old incidents.
+5. Lower `RUN_RETENTION_DAYS` (default 14) or reduce check frequency. Space is only returned to the OS after `VACUUM FULL` (takes a lock) or a dump/restore; plain deletes make room for reuse.
 
-### R6 — Deploy & rollback
-Deploy: pull new image tag → `alembic upgrade head` (migrations must be backward-compatible with the previous release: expand → migrate → contract) → restart worker then api. Rollback: previous image tag; downgrade migrations only if the release added no data you need.
+### R5 - "Suspected SSRF attempt"
+1. Blocked probes: `SELECT m.owner_id, count(*) FROM check_runs r JOIN monitors m ON m.id = r.monitor_id WHERE r.failure_class='BLOCKED_BY_POLICY' AND r.started_at > now() - interval '24 hours' GROUP BY 1;`
+2. Create-time rejections appear as `http.request` lines with `status:422` on `/api/v1/monitors`; grep for `blocked-target` in the API logs (request ids correlate).
+3. The guard runs before any connect, so a blocked target never receives a packet. Revoke the account's sessions: `UPDATE sessions SET revoked_at = now() WHERE user_id = '<id>';` and review the monitor's `url` history.
+
+### R6 - Deploy and rollback
+Deploy: pull the new image tag -> run the one-shot `migrate` service (`docker compose run --rm migrate`) -> restart `worker`, then `api`. Migrations must be backward compatible with the previous release (expand -> migrate -> contract). Rollback: previous image tag; run `alembic downgrade` only if the release added no data you need (migration 0003's downgrade is lossy for intervals below 30 s).
+
+### R7 - "A worker died / was killed"
+Nothing to do: its leases expire (`2 x timeout + 15 s`) and another worker re-runs the slot. Check the System page shows it as `Stale`; `docker compose up -d worker` to replace it. In-flight probes at the time are re-run, so a monitor may show a single delayed check.

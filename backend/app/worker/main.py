@@ -1,12 +1,14 @@
 """Worker entrypoint: `python -m app.worker.main`. Exits 0 after a graceful SIGTERM/SIGINT."""
 
 import asyncio
-import logging
 import signal
-import sys
+
+from prometheus_client import start_http_server
 
 from app.config import get_settings
 from app.db.session import SessionLocal
+from app.observability import metrics
+from app.observability.logging import setup_logging
 from app.services.probe_once import policy_from_settings
 from app.worker.loop import Worker
 
@@ -30,17 +32,18 @@ async def amain() -> None:
         claim_batch_max=cfg.claim_batch_max,
         shutdown_grace_s=cfg.shutdown_grace_s,
         heartbeat_interval_s=cfg.heartbeat_interval_s,
+        retention_every_s=cfg.retention_interval_s,
+        retention_days=cfg.run_retention_days,
     )
+    if cfg.metrics_port:
+        # Internal-only listener (compose does not publish it); the API serves its own.
+        start_http_server(cfg.metrics_port, registry=metrics.registry)
     _install_signal_handlers(worker, asyncio.get_running_loop())
     await worker.run()
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=get_settings().log_level,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        stream=sys.stdout,
-    )
+    setup_logging("worker", get_settings().log_level)
     asyncio.run(amain())
 
 

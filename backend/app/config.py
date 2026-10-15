@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     shutdown_grace_s: int = 20
     heartbeat_interval_s: int = 10
 
+    # observability / housekeeping
+    metrics_basic_auth: str = ""  # "user:pass"; empty = internal network only
+    metrics_port: int = 9100  # worker metrics listener; do not publish it
+    run_retention_days: int = 14
+    retention_interval_s: int = 3600
+
     # SSRF guard (docs/09 section 3). The CIDR override is for dev/test only; empty in prod.
     allowed_ports: str = "80,443,8000-8999"
     ssrf_allow_private_cidrs: str = ""

@@ -1,6 +1,5 @@
 """RFC 9457 problem+json responses and request-id middleware."""
 
-import uuid
 from collections.abc import Mapping
 from typing import Any
 
@@ -8,8 +7,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
 
 PROBLEM_BASE = "https://signalnest.dev/problems/"
 _TITLES = {
@@ -71,17 +68,7 @@ def _response(body: dict[str, Any], headers: Mapping[str, str] | None = None) ->
     )
 
 
-class RequestIdMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        rid = request.headers.get("x-request-id") or uuid.uuid4().hex
-        request.state.request_id = rid[:64]
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        return response
-
-
 def install_error_handlers(app: FastAPI) -> None:
-    app.add_middleware(RequestIdMiddleware)
 
     @app.exception_handler(Problem)
     async def _problem(request: Request, exc: Problem) -> JSONResponse:
