@@ -26,3 +26,13 @@ def test_monitor_schema_defaults_and_bounds() -> None:
     for bad in ({"timeout_ms": 10}, {"interval_seconds": 0}, {"expected_status": 99}):
         with pytest.raises(ValueError):
             MonitorCreate(name="x", url="https://a.example.com", **bad)
+
+
+@pytest.mark.parametrize(
+    "given",
+    ["postgres://u:p@h:5432/d", "postgresql://u:p@h:5432/d", "postgresql+asyncpg://u:p@h:5432/d"],
+)
+def test_database_url_always_uses_the_async_driver(given: str) -> None:
+    from app.config import Settings
+
+    assert Settings(database_url=given).database_url == "postgresql+asyncpg://u:p@h:5432/d"

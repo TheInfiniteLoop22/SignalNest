@@ -1,4 +1,7 @@
+import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
@@ -8,6 +11,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from app.api import auth, incidents, monitors, system
 from app.api.errors import install_error_handlers
 from app.config import get_settings
+from app.db.session import SessionLocal
+from app.probe.ssrf import SsrfPolicy
+from app.worker.loop import Worker
 
 SECURITY_HEADERS = {
     # The SPA is same-origin and ships no third-party scripts.
@@ -45,6 +51,31 @@ def _mount_spa(app: FastAPI, static_dir: Path) -> None:
         return FileResponse(index)
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """With EMBEDDED_WORKER=true the worker runs inside this process (one-service hosting)."""
+    cfg = get_settings()
+    if not cfg.embedded_worker:
+        yield
+        return
+    worker = Worker(
+        SessionLocal,
+        policy=SsrfPolicy.from_settings(
+            cfg.allowed_ports, cfg.ssrf_allow_private_cidrs, cfg.allowed_hosts
+        ),
+        max_concurrency=cfg.max_concurrency,
+        poll_interval_s=cfg.poll_interval_ms / 1000,
+        claim_batch_max=cfg.claim_batch_max,
+        shutdown_grace_s=cfg.shutdown_grace_s,
+    )
+    task = asyncio.create_task(worker.run())
+    try:
+        yield
+    finally:
+        worker.request_stop()
+        await task
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(
@@ -52,6 +83,7 @@ def create_app() -> FastAPI:
     )
     app = FastAPI(
         title="SignalNest",
+        lifespan=_lifespan,
         docs_url="/api/docs" if settings.expose_docs else None,
         redoc_url=None,
         openapi_url="/api/openapi.json" if settings.expose_docs else None,

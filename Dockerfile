@@ -27,11 +27,17 @@ FROM base AS api
 ENV STATIC_DIR=/srv/static
 COPY --from=web --chown=app /web/dist /srv/static
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 FROM base AS faultline
 EXPOSE 8001
-CMD ["uvicorn", "faultline.app:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["sh", "-c", "exec uvicorn faultline.app:app --host 0.0.0.0 --port ${PORT:-8001}"]
 
 FROM base AS migrate
 CMD ["alembic", "upgrade", "head"]
+
+# Final stage, so it is the default build target (hosting platforms build this one): run the
+# migrations, then serve the API with the worker running in-process.
+FROM api AS hosted
+ENV EMBEDDED_WORKER=true
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

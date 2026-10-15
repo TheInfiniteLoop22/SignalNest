@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # worker
+    embedded_worker: bool = False  # run the worker inside the API process (single-service hosting)
     max_concurrency: int = 20
     poll_interval_ms: int = 1000
     claim_batch_max: int = 50
@@ -33,6 +35,15 @@ class Settings(BaseSettings):
 
     # Seed/CLI convenience only.
     dev_user_email: str = "dev@signalnest.local"
+
+    @field_validator("database_url")
+    @classmethod
+    def _asyncpg_driver(cls, v: str) -> str:
+        # Hosting providers hand out postgres:// or postgresql:// URLs; we need the async driver.
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+asyncpg://" + v[len(prefix) :]
+        return v
 
 
 @lru_cache

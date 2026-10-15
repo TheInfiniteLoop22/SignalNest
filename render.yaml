@@ -1,0 +1,27 @@
+# Render Blueprint: one web service (API + UI + embedded worker), a Postgres database, and a
+# small public demo target to monitor. All on free plans.
+services:
+  - type: web
+    name: signalnest
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: signalnest-db
+          property: connectionString
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: MIN_INTERVAL_S
+        value: "30"
+
+  - type: web
+    name: signalnest-demo-target
+    runtime: docker
+    plan: free
+    dockerCommand: sh -c "exec uvicorn faultline.app:app --host 0.0.0.0 --port $PORT"
+
+databases:
+  - name: signalnest-db
+    plan: free
