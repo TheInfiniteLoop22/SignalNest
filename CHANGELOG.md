@@ -4,6 +4,20 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 
 ## [Unreleased]
 
+### Changed
+- Simplified to an explainable core (the full version stays at the `v1.0.0` tag).
+- Incidents: open after N consecutive failures, resolve on the first pass. Removed the event
+  timeline, evidence builder, diagnosis hints and recovery threshold.
+- Probe: one attempt, outcomes PASS/FAIL, 7 failure classes (was 14), checks are `expected_status`
+  and `body_contains` (was a JSON assertion engine). Removed degraded state and response storage.
+- Worker: claim and record live in `worker/queue.py`; one `locked_until` lease column replaces
+  fencing, lease owner and slot idempotency; next run is `now() + interval`.
+- Schema: 5 tables (scheduler state merged into `monitors`); the 7 migrations are squashed into one.
+- API: removed pause/resume, check-now, run detail, stats and cursor pagination.
+- Frontend: 5 pages (login, monitors, monitor detail, monitor form, incidents); removed the
+  waterfall, charts and form libraries (`react-hook-form`, `zod`).
+- Docs: 16 planning documents replaced by `ARCHITECTURE`, `DECISIONS` and `INTERVIEW_PREP`.
+
 ## [1.0.0] - 2026-10-15
 
 ### Added

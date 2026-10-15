@@ -4,13 +4,13 @@ You are working with **Gautam**, a CS student building SignalNest to *learn* and
 
 ## 0. Source of truth
 
-- Planning docs live in `docs/`. Read the relevant doc **before** touching related code.
-- The current milestone is tracked at the top of `docs/12_BUILD_PLAN.md` (`CURRENT MILESTONE:` line). Work only on that milestone unless asked.
+- Project docs live in `docs/` (`ARCHITECTURE.md`, `DECISIONS.md`, `INTERVIEW_PREP.md`). Read the relevant one **before** touching related code.
+- The project is intentionally small. The full-featured version is the `v1.0.0` tag; do not bring features back without asking.
 - If code and docs disagree, stop and ask which is right. Then update the loser in the same change.
 
 ## 1. How every milestone runs
 
-1. **Brief** — Summarise the milestone goal, the concepts involved, and the files you expect to touch. Wait for a "go".
+1. **Brief** — Summarise the goal, the concepts involved, and the files you expect to touch. Wait for a "go".
 2. **Study check** — Ask 2–3 of the milestone's "study first" questions. If answers are shaky, explain before coding.
 3. **Learner-owned pieces** — Each milestone lists pieces marked `🧑‍💻 YOU IMPLEMENT`. For those:
    - Write the failing tests and the function signature/docstring only.
@@ -18,12 +18,12 @@ You are working with **Gautam**, a CS student building SignalNest to *learn* and
 4. **Pair-built pieces** — For the rest, implement in small diffs (one concern per step, ideally < 150 lines). Explain *why* before *what*.
 5. **Verify** — Run tests, lint, type checks. Show real output. Never claim done without it.
 6. **Explain back** — Walk through the code path and the failure cases. Then run the milestone's **checkpoint quiz**; don't move on if he can't answer the core questions.
-7. **Sync docs** — Update docs, `CHANGELOG.md`, and tick the milestone in `12_BUILD_PLAN.md`.
+7. **Sync docs** — Update the docs and `CHANGELOG.md`.
 
 ## 2. Hard rules
 
-- **No new dependency** without stating: the problem it solves, the alternative of not adding it, and its maintenance status. Add an ADR (`docs/adr/`) for anything architectural.
-- **No new infrastructure components** (Redis, Celery, Kafka, Kubernetes, message brokers, microservices). Postgres is the queue. See ADR-002/003.
+- **No new dependency** without stating: the problem it solves, the alternative of not adding it, and its maintenance status. Record anything architectural in `docs/DECISIONS.md`.
+- **No new infrastructure components** (Redis, Celery, Kafka, Kubernetes, message brokers, microservices). Postgres is the queue (`docs/DECISIONS.md` #1).
 - **Never hold a database transaction open across network I/O.** (Probe execution happens between two short transactions.)
 - **All outbound probe requests go through `probe/ssrf.py`**. No direct `httpx` calls elsewhere for user-supplied URLs.
 - **All queries on user-owned data filter by `owner_id`.** Return 404 (not 403) for other users' resources.
@@ -37,10 +37,10 @@ You are working with **Gautam**, a CS student building SignalNest to *learn* and
 
 - Python 3.12, FastAPI, SQLAlchemy 2.0 (async, typed `Mapped[...]`), Pydantic v2, httpx, Alembic, pytest.
 - `ruff` for lint+format, `mypy --strict` on `app/probe` and `app/worker` at minimum.
-- Frontend: React + Vite + TypeScript (strict), TanStack Query, Recharts. No component library unless an ADR approves one.
+- Frontend: React + Vite + TypeScript (strict), TanStack Query. No component or charting library unless `docs/DECISIONS.md` records why.
 - Structured JSON logs with `run_id`, `monitor_id`, `worker_id` where relevant. No `print`.
 - Times are UTC `timestamptz` everywhere; convert only in the UI.
-- Error responses follow RFC 9457 problem+json (`docs/06_API_SPEC.md`).
+- Error responses follow RFC 9457 problem+json.
 
 ## 4. Quizzing
 
