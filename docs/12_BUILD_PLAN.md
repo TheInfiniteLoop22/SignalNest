@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M0 (in progress — scaffolding done; CI workflow + learning-log answers pending)
+CURRENT MILESTONE: M0 (CI written; learning-log answers pending)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -27,7 +27,7 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 
 | Milestone | Status | Notes |
 |---|---|---|
-| M0 | 🟡 In progress | Scaffolding done 2026-10-15; open: CI workflow (learner-owned), LEARNING_LOG answers, branch protection, project board |
+| M0 | 🟡 Nearly done | Scaffolding + CI done 2026-10-15; open: LEARNING_LOG answers / checkpoint quiz |
 | M1–M10 | ⬜ Not started | |
 
 ### Deviations log
@@ -39,6 +39,9 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M0 | `ruff` excludes `docs/` | ruff formats Python snippets inside Markdown, which would rewrite the spec's illustrative code |
 | 2026-10-15 | M0 | `mypy --strict` not yet enabled on `app/probe`/`app/worker` | Those packages don't exist yet; strict overrides are added when they are created (M2/M4) |
 | 2026-10-15 | M0 | GitHub Project board and branch protection deferred | Protection needs CI check names, which exist only after the CI workflow is written |
+| 2026-10-15 | All | Workflow changed: **commit directly to `main`**, no branches/PRs/review gates; Claude acts autonomously | User request to minimise their involvement. Supersedes branch-per-milestone in `13` §6 and CLAUDE.md §1 hand-offs |
+| 2026-10-15 | M0 | CI workflow written by Claude, not the learner | Same request; learner should still read it before the checkpoint quiz |
+| 2026-10-15 | M0 | No branch protection or project board | Solo repo pushing straight to `main`; protection would block the chosen workflow |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 
@@ -56,9 +59,9 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
   - [x] ruff / mypy / pytest configured; "it runs" test passes (`uv run pytest`)
   - [x] `docker-compose.yml` Postgres 16 + `pg_isready` healthcheck — verified `healthy`
   - [x] `.env.example`, `CHANGELOG.md`, `docs/LEARNING_LOG.md`
-  - [ ] 🧑‍💻 `.github/workflows/ci.yml` — **yours to write**; target jobs: lint (`ruff check`, `ruff format --check`), types (`mypy backend/app`), test (`pytest`) using `astral-sh/setup-uv`
+  - [x] `.github/workflows/ci.yml` — lint / types / test jobs (written by Claude, see deviations)
   - [ ] LEARNING_LOG readiness answers + M0 checkpoint quiz
-  - [ ] Project board with M1 issues; branch protection on `main` once CI exists
+  - [x] Project board / branch protection: dropped (see deviations)
 - **Checkpoint:** Why a lockfile? What's the difference between `depends_on` and a healthcheck condition? What does CI prove and what doesn't it?
 
 ## M1 — Tiny vertical slice (end-to-end thinnest path)
