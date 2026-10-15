@@ -67,3 +67,33 @@ Also reject alternative IPv4 notations parsed by some libraries (`http://2130706
 - [ ] New input validated in Pydantic **and** constrained in DB where sensible?
 - [ ] Anything logged that could be secret?
 - [ ] Test for the unhappy path added?
+
+## 7. Control review at v1.0.0 (2026-10-15)
+
+Each threat from section 2 against what is actually in the repository. "Evidence" is a test or
+file you can run/read; "Gap" is honest.
+
+| # | Control claimed | Evidence | Status / gap |
+|---|---|---|---|
+| T1 SSRF | resolve-validate-pin; ports; no redirects; body cap | `probe/ssrf.py`; `test_ssrf.py` (48 IP + 30 URL cases), `test_pinning.py` (pinning, rebinding, mixed answers, TLS by IP); create-time 422 in `test_api.py`; `httpx` import confined to `app/probe` (test) | Met. Residual: a public IP that itself proxies inward; `ALLOWED_HOSTS` / `SSRF_ALLOW_PRIVATE_CIDRS` bypass the guard by design (dev only; forced empty in `docker-compose.prod.yml`; startup warning) |
+| T2 DNS rebinding | re-resolve every attempt, connect to validated IP | `test_dns_rebinding_public_then_private_is_blocked` | Met |
+| T3 Abuse as DoS tool | per-user cap 50, per-host cap 5, min interval 30 s, registration switch, read cap | `test_per_user_and_per_host_caps`, `test_minimum_interval_is_enforced`; 64 KB read cap in engine; prod registration closed | Met for one operator. A determined attacker with many accounts is not stopped (demo should keep registration closed) |
+| T4 IDOR | `owner_id` filter, 404 not 403 | route-crawler test over the OpenAPI document | Met. The crawler only covers routes with an id parameter; list endpoints are covered by explicit assertions |
+| T5 Credential attacks | argon2id; login limit per email+IP; generic errors; constant-time | `test_login_errors_are_generic_and_rate_limited`; dummy-hash verify for unknown users | Met. No MFA. Limiter is per process (stated) |
+| T6 Session theft / CSRF | httpOnly+Secure+SameSite=Lax; header on unsafe methods; same-origin | `test_session_cookie_flags_and_hashed_token`, `test_unsafe_requests_need_the_csrf_header`; no CORS middleware installed | Met. Sessions are not rotated on privilege change (there is none yet) |
+| T7 Stored XSS | text-only rendering; CSP | App test feeds `<img onerror>`/`<script>` and asserts text; `SECURITY_HEADERS` middleware | Met. CSP allows inline *styles* (Recharts) but not inline scripts |
+| T8 Header injection / secret leakage | header denylist; response-header allow-list; query values redacted in logs | `test_monitor_validation` (Host/Authorization/Proxy-*/CRLF), `test_response_headers_are_allow_listed`, `redact_url`, request log has route template only | Met. Users can still put secrets in query strings in the monitor URL (the URL is stored; it is not logged) |
+| T9 Resource exhaustion | read cap; deadline; semaphore; lease | engine tests (`/big`, `/drip`, `/hang`); `test_concurrency_is_bounded` | Met |
+| T10 Secrets in repo/images | `.gitignore`, env-only config, scanning | `.env*` ignored (examples allowed); `gitleaks` job in CI (added at v1.0) | Met; history was scanned by the CI job on first run |
+| T11 Vulnerable dependencies | `pip-audit`, `npm audit`, Dependabot | `security` job in CI; `.github/dependabot.yml` (added at v1.0). On 2026-10-15: pip-audit clean; npm audit high findings in `react-router` fixed by 6.30.6 | **Open:** 2 moderate `react-router` advisories (backslash open redirect, SSR hydration) need the breaking v7 upgrade; not reachable (no SSR, no user-controlled navigation targets) |
+| T12 Metrics/docs exposure | `/metrics` internal or basic auth; docs off in prod | `test_metrics_basic_auth`; Caddyfile 404s `/metrics`, `/readyz`, docs; `EXPOSE_DOCS=false` | Met locally; not verified on a public host |
+
+**Review findings fixed in this pass:** the CI had no `security` job and no Dependabot config
+although the testing plan lists them (added); three high `npm audit` findings (fixed by upgrading
+`react-router-dom` 6.26.2 -> 6.30.6); `.env.prod.example` was being git-ignored by the `.env.*`
+rule (now allowed).
+
+**Known, accepted, not fixed:** in-process rate limiting; no MFA; `style-src 'unsafe-inline'`;
+sessions are valid for 7 days absolute with no idle timeout; no account deletion or password change
+endpoint (so "revoke all sessions on password change" has no trigger yet); logs may contain
+`monitor_id` and `user`-correlated request ids (no PII beyond that).

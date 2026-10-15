@@ -73,7 +73,18 @@ TCP handshake/teardown · TLS 1.2/1.3 handshake · DNS resolution & TTL · HTTP/
 - Built an incident state machine with failure/recovery thresholds and rule-based diagnosis, demonstrated with a custom fault-injection service.
 - ___ automated tests in GitHub Actions (unit, Postgres integration, network-fault tests) with no external network dependency; deployed on ___ with HTTPS and tested backup restores.
 
+### Filled in with measured numbers (v1.0.0)
+Use only these; they are the ones with a command behind them (see `README.md` "Measured").
+- Built **SignalNest**, a self-hosted API reliability workbench (FastAPI, PostgreSQL, React/TypeScript, Docker) that records per-phase timings (DNS/connect/TLS/TTFB) and classifies failures into **14** categories.
+- Designed a restart-safe, horizontally scalable scheduler using PostgreSQL `SKIP LOCKED` leases and fenced, idempotent completion; verified one run per slot with **2 worker processes** (2 741 runs, 0 duplicates, 1 000 monitors at 30 s) and recovery after a **kill -9** of a worker mid-probe.
+- Implemented SSRF defences (resolve-validate-pin, private/metadata range blocking, IPv4-in-IPv6 unwrapping, DNS-rebinding protection) covered by **78** table-driven cases plus pinning/rebinding integration tests.
+- Built an incident state machine with failure/recovery thresholds and rule-based diagnosis, demonstrated with a custom fault-injection service.
+- **292** backend and **49** frontend automated tests (**95 %** backend line coverage) in GitHub Actions with no external network dependency.
+- Measured one worker process saturating at roughly **20 probes/s** on a developer laptop and scaling out with a second process; found and fixed an event-loop stall caused by building an SSL context per probe.
+
+Do **not** claim: a deployed/hosted instance, "tested backup restores" in production (the drill was run once, locally, on a 26 KB dump), uptime figures, user counts, or "production-grade".
+
 Never write: "production-grade", "highly scalable", "99.9 % uptime", user counts, or any number you didn't measure.
 
 ## 7. Agile / collaboration — the honest framing
-"Solo project, but run like a team project: issues per milestone on a board, small PRs gated by CI, ADRs for design decisions, a changelog, and regular self-reviews against a checklist." Don't claim sprints, standups or code review by others unless they happened.
+What actually happened: a solo project built milestone by milestone against a written plan, with CI gating every push to `main`, 24 ADRs, a changelog, a deviations log in the build plan, and AI-assisted pair programming (Claude Code). Work was committed directly to `main` (no PR review, no project board) at the owner's request, so say that rather than "small PRs gated by CI". Don't claim sprints, standups or review by other people. Be ready to explain which parts you wrote and understand versus which were AI-generated: the learner-owned pieces in the plan were largely written by the assistant in this build, so study them before an interview (`classify.py`, `assertions.py`, the claim SQL, `state_machine.evaluate`, `ssrf.py`).

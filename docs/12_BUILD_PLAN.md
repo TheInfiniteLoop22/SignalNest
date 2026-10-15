@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M9 (build + local verification done; cloud provisioning needs the owner)
+CURRENT MILESTONE: v1.0.0 tagged (M0-M8, M10 done; M9 built and verified locally, not provisioned). Next: M11+
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -30,14 +30,15 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | M0 | ✅ Done | Scaffolding + CI green 2026-10-15; checkpoint quiz skipped (see deviations) |
 | M1 | ✅ Done | 2026-10-15. 4 tests (1 unit, 3 integration) pass locally; CI has a Postgres service job. CLI run 3x -> API listed 3 runs newest-first |
 | M2 | ✅ Done | 2026-10-15. 22 engine tests against real sockets + 37 unit tests; `mypy --strict app/probe` clean. ADR-017 written |
-| M3 | ✅ Done | 2026-10-15. ~55-case IP table + 28 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
+| M3 | ✅ Done | 2026-10-15. 48-case IP table + 30 URL cases, rebinding/mixed-answer/pinning/TLS-by-IP tests; no `httpx` outside `app/probe` (enforced by a test). ADR-018 |
 | M4 | ✅ Done | 2026-10-15. 16 worker integration tests (AC1-lite, AC2, AC3, AC11, AC12 + fencing); `docker compose up --scale worker=2` demo: 31 runs / 31 distinct slots, then SIGKILL of the worker mid-`/hang` probe -> lease expired and monitor rescheduled, 48 / 48. ADR-019 |
 | M5 | ✅ Done | 2026-10-15. 219 tests total pass locally; state machine (23 cases incl. AC9), hints (14 cases), Faultline scenario tests for AC7/AC10 incl. backdated `opened_at` and event sequence. ADR-020 incl. the pause decision |
 | M6 | ✅ Done | 2026-10-15. 268 tests total pass locally (49 new: 40 API integration + 9 unit). Auth, monitor CRUD/pause/resume/check, runs (keyset), stats, incidents, run detail, probe test, problem+json, IDOR crawler (AC8), SSRF create-time rejection (AC6). ADR-021 |
 | M7 | ✅ Done | 2026-10-15. 44 Vitest tests, `tsc --noEmit` clean, `vite build` ok; live check against real API + worker + Faultline: outage -> incident in ~3 s with `H_5XX`, recovery -> resolved in ~3 s, `169.254.169.254` -> `blocked-target`. ADR-022 |
 | M8 | ✅ Done | 2026-10-15. 292 backend tests + 49 frontend tests pass. JSON logs with request/run/monitor/worker ids, `/healthz`, `/readyz`, `/metrics`, System page + endpoint, retention with `job_runs`, DB-outage recovery test, runbook rewritten with real commands. ADR-023 |
 | M9 | 🟡 Built and verified locally | 2026-10-15. Prod compose/Caddy/backup/restore/deploy workflow done and exercised on Docker Desktop. **Not done: provision a VM, DNS, public HTTPS, firewall, object-storage backups** (requires your cloud account and domain). ADR-024, `docs/13` section 5 |
-| M10 | ⬜ Not started | |
+| M10 | ✅ Done (with the M9 caveat) | 2026-10-15. README rewritten with measured numbers and commands, load experiment script, control-by-control security review, CI `security` job + Dependabot, filled-in interview numbers, CHANGELOG 1.0.0, tag `v1.0.0` |
+| M11+ | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -106,6 +107,13 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M9 | Firewall/restore-drill steps the plan marks learner-owned were written by Claude | Autonomous workflow |
 | 2026-10-15 | M9 | Added `create-user --password-stdin` CLI | Prod registration is closed, so accounts need another path |
 | 2026-10-15 | M9 | CI `ops` job: shellcheck (warning+), compose config, Caddyfile validate, image builds | Keeps deployment files from rotting between deploys |
+| 2026-10-15 | M10 | Tagged `v1.0.0` although M9's provisioning criteria are unmet | The tag marks the code/doc MVP; the README states plainly that nothing is deployed. Retag or cut `v1.0.1` after a real deployment |
+| 2026-10-15 | M10 | No demo GIF; no "friend can run it" test | No screen capture possible here, and no second person; instead the README quickstart was executed end to end (register, login, create monitor, test request, scenario flip) on a clean `docker compose up --build` |
+| 2026-10-15 | M10 | The 30-minute mock interview was not run | Needs a human; `docs/15` has the question bank. Do this before any real interview |
+| 2026-10-15 | M10 | Load numbers come from one laptop with everything co-located, 80 s windows | Stated beside every number; not a capacity plan |
+| 2026-10-15 | M10 | Coverage 95 % is line coverage with `greenlet` concurrency enabled and two entrypoints omitted | Without `concurrency = ["greenlet", "thread"]` it under-reported at 84 %; both settings are in `pyproject.toml` |
+| 2026-10-15 | M10 | Two moderate `react-router` advisories left open | Fix is a breaking v7 upgrade; not reachable in this app; listed in README and `docs/09` |
+| 2026-10-15 | M10 | Interview doc now says the plan's learner-owned code was largely AI-written | Honest framing matters more than the original plan's wording |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

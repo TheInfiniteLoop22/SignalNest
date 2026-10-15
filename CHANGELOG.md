@@ -4,6 +4,8 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-15
+
 ### Added
 - M0: project tooling (uv, ruff, mypy, pytest), dev `docker-compose.yml` with Postgres 16 + healthcheck, `.env.example`.
 - M1: Alembic initial migration (`users`, `monitors`, `monitor_state`, `check_runs`), plain-GET probe via `python -m app.cli probe`, `GET /api/v1/monitors/{id}/runs`, minimal Faultline `/ok`, Postgres integration tests + CI job.
@@ -15,3 +17,6 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 - M7: React/Vite/TypeScript frontend (monitors, form with test request, monitor detail with chart and runs, run detail with phase waterfall, incidents), SPA served by the API with security headers, CI frontend job; ADR-022.
 - M8: structured JSON logging with correlation ids, Prometheus metrics, `/healthz` `/readyz` `/metrics`, System page and `/api/v1/system/status`, batched retention job with `job_runs`, CLI `probe-url`/`retention`, DB-outage recovery test, runbook with real commands; ADR-023.
 - M9: production compose (caddy TLS, hardened non-root read-only containers), Caddyfile, `.env.prod.example`, `ops/backup.sh` + `ops/restore-drill.sh`, `create-user` CLI, manual deploy workflow, CI ops job; ADR-024.
+- M10: README with measured numbers and commands, `ops/load_experiment.py`, v1.0 security control review, CI `security` job (pip-audit, npm audit, gitleaks), Dependabot, coverage settings, `react-router-dom` 6.30.6 (fixes three high advisories).
+
+Known gaps at this tag: not deployed to a VM/domain (M9 provisioning), no notifications, two moderate `react-router` advisories, in-process rate limiting. See README "Limitations".

@@ -22,6 +22,8 @@ dev = [
     "mypy>=1.11",
     "pytest-asyncio>=1.4.0",
     "trustme>=1.2.1",
+    "pytest-cov>=7.1.0",
+    "pip-audit>=2.10.1",
 ]
 
 [tool.uv]
@@ -47,3 +49,12 @@ mypy_path = "backend"
 explicit_package_bases = true
 # strict is required on app/probe and app/worker (CLAUDE.md §3); they don't exist yet.
 # Per-module strict overrides are added as those packages appear.
+
+[tool.coverage.run]
+source = ["backend/app"]
+# SQLAlchemy's async layer runs sync code in greenlets; without this, code that awaits the
+# database is under-reported.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+omit = ["backend/app/cli.py", "backend/app/worker/main.py"]  # process entrypoints, exercised manually
