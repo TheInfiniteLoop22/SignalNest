@@ -1,149 +1,47 @@
 """Value types for the probe engine. No I/O, no database."""
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Protocol
-
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
+from typing import Protocol
 
 
 class Outcome(StrEnum):
     PASS = "PASS"
-    DEGRADED = "DEGRADED"
     FAIL = "FAIL"
-    INCONCLUSIVE = "INCONCLUSIVE"
 
 
 class FailureClass(StrEnum):
-    INVALID_TARGET = "INVALID_TARGET"
-    DNS_FAILURE = "DNS_FAILURE"
-    DNS_TIMEOUT = "DNS_TIMEOUT"
-    BLOCKED_BY_POLICY = "BLOCKED_BY_POLICY"
-    CONNECTION_REFUSED = "CONNECTION_REFUSED"
-    CONNECT_TIMEOUT = "CONNECT_TIMEOUT"
-    CONNECTION_RESET = "CONNECTION_RESET"
-    TLS_CERT_INVALID = "TLS_CERT_INVALID"
-    TLS_ERROR = "TLS_ERROR"
-    READ_TIMEOUT = "READ_TIMEOUT"
-    TOTAL_TIMEOUT = "TOTAL_TIMEOUT"
-    HTTP_UNEXPECTED_STATUS = "HTTP_UNEXPECTED_STATUS"
-    ASSERTION_FAILED = "ASSERTION_FAILED"
-    PROBE_INTERNAL_ERROR = "PROBE_INTERNAL_ERROR"
+    """Why a probe failed, coarse enough to read at a glance. `detail` carries the specifics."""
 
-
-# Classes caused by our side (or by policy), never counted against the target.
-INCONCLUSIVE_CLASSES = frozenset(
-    {FailureClass.BLOCKED_BY_POLICY, FailureClass.PROBE_INTERNAL_ERROR}
-)
-
-
-class Phase(StrEnum):
-    """Where an attempt was when it failed; disambiguates timeouts."""
-
-    DNS = "dns"
-    CONNECT = "connect"
-    TLS = "tls"
-    HEADERS = "headers"
-    BODY = "body"
-
-
-# --- assertions ------------------------------------------------------------------------
-
-
-class StatusIn(BaseModel):
-    model_config = ConfigDict(frozen=True, populate_by_name=True)
-
-    type: Literal["status_in"] = "status_in"
-    values: list[int] | None = None
-    range_: tuple[int, int] | None = Field(default=None, alias="range")
-
-    @model_validator(mode="after")
-    def _exactly_one(self) -> "StatusIn":
-        if (self.values is None) == (self.range_ is None):
-            raise ValueError("provide exactly one of 'values' or 'range'")
-        return self
-
-
-class LatencyBelow(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["latency_below"] = "latency_below"
-    ms: int = Field(gt=0)
-
-
-class BodyContains(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["body_contains"] = "body_contains"
-    text: str = Field(min_length=1, max_length=200)
-
-
-class JsonEquals(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["json_equals"] = "json_equals"
-    path: str = Field(min_length=1)
-    value: str | int | float | bool | None
-
-
-Assertion = Annotated[
-    StatusIn | LatencyBelow | BodyContains | JsonEquals, Field(discriminator="type")
-]
-assertion_list_adapter: TypeAdapter[list[Assertion]] = TypeAdapter(list[Assertion])
-
-
-@dataclass(frozen=True)
-class AssertionResult:
-    type: str
-    expected: Any
-    actual: Any
-    passed: bool
-    message: str = ""
-
-
-# --- request / result ------------------------------------------------------------------
+    DNS = "DNS"  # name does not resolve, or the resolver is unreachable
+    CONNECT = "CONNECT"  # refused, reset, or the connection never opened
+    TLS = "TLS"  # handshake or certificate verification failed
+    TIMEOUT = "TIMEOUT"  # the whole probe exceeded its time budget
+    BAD_RESPONSE = "BAD_RESPONSE"  # got an answer, but the status or body was not what we expect
+    BLOCKED = "BLOCKED"  # SSRF policy refused the target (or the URL is not usable)
+    ERROR = "ERROR"  # anything else, including bugs in the probe itself
 
 
 @dataclass(frozen=True)
 class ProbeRequest:
     url: str
-    method: Literal["GET", "HEAD"] = "GET"
     timeout_ms: int = 5000
-    headers: Mapping[str, str] = field(default_factory=dict)
-    assertions: Sequence[Assertion] = ()
-    degraded_ms: int | None = None
-
-
-@dataclass(frozen=True)
-class AttemptResult:
-    started_at: datetime
-    resolved_ip: str | None
-    dns_ms: int | None
-    connect_ms: int | None
-    tls_ms: int | None
-    ttfb_ms: int | None
-    total_ms: int
-    http_status: int | None
-    error_class: FailureClass | None
-    error_detail: str | None
+    expected_status: int | None = None  # None: any 2xx or 3xx
+    body_contains: str | None = None
 
 
 @dataclass(frozen=True)
 class ProbeResult:
     outcome: Outcome
     failure_class: FailureClass | None
-    attempts: list[AttemptResult]  # 1 or 2; the last one is the "final" attempt
-    assertion_results: list[AssertionResult]
-    response_headers: dict[str, str] | None
-    response_snippet: str | None
-    body_truncated: bool = False
-    error_detail: str | None = None
-
-    @property
-    def final(self) -> AttemptResult:
-        return self.attempts[-1]
+    http_status: int | None
+    resolved_ip: str | None
+    dns_ms: int | None
+    connect_ms: int | None
+    tls_ms: int | None
+    ttfb_ms: int | None
+    total_ms: int
+    detail: str | None = None
 
 
 # --- seams (injected so tests are deterministic) -------------------------------------

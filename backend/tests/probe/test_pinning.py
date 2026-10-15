@@ -1,4 +1,4 @@
-"""M3 spike + guard tests: IP pinning, TLS verification by hostname, DNS rebinding."""
+"""SSRF guard tests: IP pinning, TLS verification by hostname, DNS rebinding."""
 
 import ipaddress
 import ssl
@@ -44,7 +44,7 @@ async def _tls_probe(cert_name: str) -> tuple[Outcome, FailureClass | None, int 
         )
     finally:
         srv.close()
-    return r.outcome, r.failure_class, r.final.tls_ms
+    return r.outcome, r.failure_class, r.tls_ms
 
 
 async def test_tls_is_verified_against_hostname_when_connecting_by_ip() -> None:
@@ -56,7 +56,7 @@ async def test_tls_is_verified_against_hostname_when_connecting_by_ip() -> None:
 async def test_certificate_for_another_name_is_rejected() -> None:
     outcome, failure, _ = await _tls_probe("someone-else.test")
     assert outcome is Outcome.FAIL
-    assert failure is FailureClass.TLS_CERT_INVALID
+    assert failure is FailureClass.TLS
 
 
 async def test_request_goes_to_pinned_ip_with_original_host_header() -> None:
@@ -96,8 +96,8 @@ async def test_dns_rebinding_public_then_private_is_blocked() -> None:
     assert first.outcome is Outcome.PASS
 
     second = await run_probe(req, resolver=resolver, transport=transport)
-    assert second.outcome is Outcome.INCONCLUSIVE
-    assert second.failure_class is FailureClass.BLOCKED_BY_POLICY
+    assert second.outcome is Outcome.FAIL
+    assert second.failure_class is FailureClass.BLOCKED
     assert len(sent) == 1  # nothing was sent for the second probe
 
 
@@ -109,7 +109,7 @@ async def test_mixed_public_and_private_answers_are_rejected() -> None:
         resolver=Fixed(["93.184.216.34", "169.254.169.254"]),
         transport=transport,
     )
-    assert r.failure_class is FailureClass.BLOCKED_BY_POLICY
+    assert r.failure_class is FailureClass.BLOCKED
     assert sent == []
 
 
@@ -118,7 +118,7 @@ async def test_literal_loopback_url_is_blocked_by_default_policy() -> None:
     transport = httpx.MockTransport(lambda r: sent.append(r) or httpx.Response(200))
     for url in ("http://127.0.0.1/", "http://[::1]/", "http://[::ffff:127.0.0.1]/"):
         r = await run_probe(ProbeRequest(url=url, timeout_ms=1000), transport=transport)
-        assert r.failure_class is FailureClass.BLOCKED_BY_POLICY, url
+        assert r.failure_class is FailureClass.BLOCKED, url
     assert sent == []
 
 
@@ -126,5 +126,5 @@ async def test_blocked_port_and_hostname_never_resolve() -> None:
     resolver = Fixed(["93.184.216.34"])
     for url in ("http://example.com:5432/", "http://localhost/", "http://2130706433/"):
         r = await run_probe(ProbeRequest(url=url, timeout_ms=1000), resolver=resolver)
-        assert r.failure_class is FailureClass.BLOCKED_BY_POLICY, url
+        assert r.failure_class is FailureClass.BLOCKED, url
     assert resolver.calls == 0
