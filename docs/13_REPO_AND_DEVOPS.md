@@ -41,7 +41,7 @@ signalnest/
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/  (this pack + adr/ + LEARNING_LOG.md + learning/)
+├── docs/  (this pack + adr/ + learning/)
 └── .github/workflows/ci.yml, deploy.yml
 ```
 

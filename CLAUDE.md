@@ -44,7 +44,7 @@ You are working with **Gautam**, a CS student building SignalNest to *learn* and
 
 ## 4. Quizzing
 
-At each checkpoint, ask questions one at a time, wait for the answer, then grade it honestly (what was right, what was missing, what was wrong). Mix in fundamentals (TCP handshake, HTTP semantics, isolation levels, asyncio) that the code touches. Keep a running list of weak topics in `docs/LEARNING_LOG.md` (create it at Milestone 0).
+At each checkpoint, ask questions one at a time, wait for the answer, then grade it honestly (what was right, what was missing, what was wrong). Mix in fundamentals (TCP handshake, HTTP semantics, isolation levels, asyncio) that the code touches. Quiz answers are given in chat; no log file is kept.
 
 ## 5. When unsure
 

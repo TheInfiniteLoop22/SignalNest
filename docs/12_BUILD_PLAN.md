@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M0 (CI written; learning-log answers pending)
+CURRENT MILESTONE: M2 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -10,7 +10,7 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 
 | Phase | Milestone | Deliverable | Est. |
 |---|---|---|---|
-| **A. Foundations** | M0 | Repo, tooling, CI skeleton, compose with Postgres, LEARNING_LOG | 2–3 days |
+| **A. Foundations** | M0 | Repo, tooling, CI skeleton, compose with Postgres | 2–3 days |
 | | M1 | **Tiny vertical slice**: one hard-coded URL probed by a CLI, result stored, listed via API | 3–4 days |
 | **B. The probe** | M2 | Probe engine: timings, taxonomy, assertions, Faultline v1 | 1–1.5 wks |
 | | M3 | SSRF guard + IP pinning | 4–6 days |
@@ -27,8 +27,9 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 
 | Milestone | Status | Notes |
 |---|---|---|
-| M0 | 🟡 Nearly done | Scaffolding + CI done 2026-10-15; open: LEARNING_LOG answers / checkpoint quiz |
-| M1–M10 | ⬜ Not started | |
+| M0 | ✅ Done | Scaffolding + CI green 2026-10-15; checkpoint quiz skipped (see deviations) |
+| M1 | ✅ Done | 2026-10-15. 4 tests (1 unit, 3 integration) pass locally; CI has a Postgres service job. CLI run 3x -> API listed 3 runs newest-first |
+| M2–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -42,6 +43,13 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | All | Workflow changed: **commit directly to `main`**, no branches/PRs/review gates; Claude acts autonomously | User request to minimise their involvement. Supersedes branch-per-milestone in `13` §6 and CLAUDE.md §1 hand-offs |
 | 2026-10-15 | M0 | CI workflow written by Claude, not the learner | Same request; learner should still read it before the checkpoint quiz |
 | 2026-10-15 | M0 | No branch protection or project board | Solo repo pushing straight to `main`; protection would block the chosen workflow |
+| 2026-10-15 | M0 | `LEARNING_LOG.md` removed; readiness and checkpoint quizzes dropped | User: unnecessary file. Quizzes are optional on request |
+| 2026-10-15 | M1 | Commands need `PYTHONPATH=backend` (e.g. `PYTHONPATH=backend uv run python -m app.cli seed`) | App is not an installed package (`tool.uv package = false`); revisit with the Dockerfile in M4/M9 |
+| 2026-10-15 | M1 | `users` has only `id/email/created_at`; no `password_hash` yet | Auth is M6; that migration adds it. A seeded dev user stands in via `current_user` dependency |
+| 2026-10-15 | M1 | Reduced `monitors`/`monitor_state`/`check_runs` columns (no headers, assertions, leases, timings, attempts) | Spec says "minimal columns" for M1; later migrations add them |
+| 2026-10-15 | M1 | Failure class `UNCLASSIFIED_ERROR` for network exceptions | Placeholder until `classify.py` in M2 |
+| 2026-10-15 | M1 | Integration tests override `get_session` with the test session | App's module-level async engine binds to one event loop; reusing it across pytest-asyncio loops fails on Windows |
+| 2026-10-15 | M1 | Learner-owned pieces (model, migration, runs query) built by Claude | Autonomous workflow requested (see M0 deviations) |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 
@@ -50,7 +58,7 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
 ---
 
 ## M0 — Foundations
-- **Deliverable:** repo structure (`13_REPO_AND_DEVOPS.md`), `pyproject.toml` (uv or pip-tools — pick one, note why), ruff/mypy configs, pytest with an "it runs" test, `docker-compose.yml` with Postgres 16 + healthcheck, `.env.example`, GitHub Actions running lint + tests, `docs/LEARNING_LOG.md`, `CHANGELOG.md`, GitHub Project board with M1 issues.
+- **Deliverable:** repo structure (`13_REPO_AND_DEVOPS.md`), `pyproject.toml` (uv or pip-tools — pick one, note why), ruff/mypy configs, pytest with an "it runs" test, `docker-compose.yml` with Postgres 16 + healthcheck, `.env.example`, GitHub Actions running lint + tests, `CHANGELOG.md`, GitHub Project board with M1 issues.
 - **Study first:** virtual envs & lockfiles; what a Docker healthcheck is; what CI runs on a PR vs on push.
 - **🧑‍💻 You implement:** the CI workflow YAML (Claude reviews).
 - **Done when:** a PR shows green CI; `docker compose up db` reaches healthy.
@@ -58,9 +66,8 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
   - [x] repo layout (minimal: `backend/app`, `backend/tests/{unit,integration}`), `pyproject.toml` + `uv.lock`
   - [x] ruff / mypy / pytest configured; "it runs" test passes (`uv run pytest`)
   - [x] `docker-compose.yml` Postgres 16 + `pg_isready` healthcheck — verified `healthy`
-  - [x] `.env.example`, `CHANGELOG.md`, `docs/LEARNING_LOG.md`
+  - [x] `.env.example`, `CHANGELOG.md`
   - [x] `.github/workflows/ci.yml` — lint / types / test jobs (written by Claude, see deviations)
-  - [ ] LEARNING_LOG readiness answers + M0 checkpoint quiz
   - [x] Project board / branch protection: dropped (see deviations)
 - **Checkpoint:** Why a lockfile? What's the difference between `depends_on` and a healthcheck condition? What does CI prove and what doesn't it?
 
@@ -149,7 +156,7 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
 ---
 
 ## Regular checkpoints (process)
-- **End of each milestone:** explain-back + quiz (CLAUDE.md §4). Record weak topics in `LEARNING_LOG.md`.
+- **End of each milestone:** explain-back + quiz (CLAUDE.md §4).
 - **Every 2 milestones:** "design from memory" — draw the architecture and the probe sequence on paper without looking; compare with docs; fix gaps.
 - **Before M4 and M6:** 10-minute re-read of `08_ENGINEERING_DECISIONS.md` and challenge one ADR you now disagree with.
 
@@ -166,7 +173,6 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
 - [ ] `GET /api/v1/monitors/{id}/runs` returns runs newest-first.
 - [ ] 1 unit test + 1 integration test (Postgres) pass locally **and** in GitHub Actions.
 - [ ] ruff + mypy clean.
-- [ ] `LEARNING_LOG.md` has your answers to the questions below.
 
 ### Questions to answer before implementation begins
 1. In your own words: what problem does SignalNest solve that a cron job running `curl` doesn't?
@@ -177,4 +183,4 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
 6. What are you deliberately **not** building, and how will you explain that choice in an interview?
 7. Which cloud (or Render) will you deploy to in M9, and why?
 
-Answer these in `docs/LEARNING_LOG.md`; Claude will review and challenge them before M1 code starts.
+Readiness questions were waived (see deviations log).

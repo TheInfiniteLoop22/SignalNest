@@ -46,7 +46,7 @@ Example:
 ### R2 — "Everything is failing at once"
 1. Failure class distribution in the last 10 min. All `DNS_*` or `CONNECT_TIMEOUT` across unrelated hosts → likely **our** network/DNS, not targets.
 2. From the worker container: `python -m app.cli probe-url https://example.com` (or the canary, next iteration).
-3. If ours: mark the period in `LEARNING_LOG`; next iteration's canary automates `INCONCLUSIVE` marking.
+3. If ours: note the period in the incident notes; next iteration's canary automates `INCONCLUSIVE` marking.
 
 ### R3 — "Database unavailable"
 1. `/readyz` 503; worker logs `db.unavailable` with backoff.

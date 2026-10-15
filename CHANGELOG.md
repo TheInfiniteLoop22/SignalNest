@@ -6,3 +6,4 @@ All notable changes are recorded here. Format: [Keep a Changelog](https://keepac
 
 ### Added
 - M0: project tooling (uv, ruff, mypy, pytest), dev `docker-compose.yml` with Postgres 16 + healthcheck, `.env.example`.
+- M1: Alembic initial migration (`users`, `monitors`, `monitor_state`, `check_runs`), plain-GET probe via `python -m app.cli probe`, `GET /api/v1/monitors/{id}/runs`, minimal Faultline `/ok`, Postgres integration tests + CI job.

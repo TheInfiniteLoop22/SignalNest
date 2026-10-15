@@ -25,7 +25,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - run: uv run mypy backend/app
+      - run: uv run mypy backend/app faultline
 
   test:
     runs-on: ubuntu-latest
@@ -36,3 +36,29 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run pytest -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: signalnest
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: signalnest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signalnest -d signalnest"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://signalnest:change-me@localhost:5432/signalnest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest -m integration
