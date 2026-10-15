@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import get_settings
-from app.db.models import Monitor, MonitorState, User
+from app.db.models import Monitor, User
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
@@ -47,7 +47,6 @@ async def seeded(session: AsyncSession) -> tuple[User, Monitor]:
     monitor = Monitor(owner_id=user.id, name="m", url="http://faultline.test/ok")
     session.add(monitor)
     await session.flush()
-    session.add(MonitorState(monitor_id=monitor.id))
     await session.commit()
     return user, monitor
 

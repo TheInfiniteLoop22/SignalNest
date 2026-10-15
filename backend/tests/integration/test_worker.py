@@ -1,478 +1,241 @@
+"""The Postgres queue and the incident lifecycle, against a real database."""
+
 import asyncio
 import ipaddress
-import os
-import subprocess
-import sys
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.config import get_settings
-from app.db.models import Monitor, MonitorState, User
+from app.db.models import Monitor, User
 from app.probe.ssrf import SsrfPolicy
-from app.probe.types import (
-    AttemptResult,
-    FailureClass,
-    Outcome,
-    ProbeResult,
-)
-from app.worker.claim import claim_due, release_leases
-from app.worker.complete import Completion, complete_run
+from app.probe.types import FailureClass, Outcome, ProbeResult
 from app.worker.loop import Worker
+from app.worker.queue import claim_due, record_result
 
 pytestmark = pytest.mark.integration
 
 LOCAL = SsrfPolicy(allowed_ports=None, allow_private_cidrs=(ipaddress.ip_network("127.0.0.0/8"),))
-BACKEND = Path(__file__).resolve().parents[2]
+
+Sessions = async_sessionmaker[AsyncSession]
 
 
 @pytest_asyncio.fixture
-async def sessions(migrated_db: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+async def sessions(migrated_db: str) -> AsyncIterator[Sessions]:
     engine = create_async_engine(migrated_db, pool_size=20)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-    yield maker
+    yield async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.execute(text("TRUNCATE users CASCADE"))
     await engine.dispose()
 
 
-MakeMonitors = Callable[..., Awaitable[list[uuid.UUID]]]
-
-
-@pytest_asyncio.fixture
-async def make_monitors(sessions: async_sessionmaker[AsyncSession]) -> MakeMonitors:
-    async def make(
-        n: int = 1,
-        *,
-        url: str = "http://faultline.test/ok",
-        interval: int = 30,
-        timeout_ms: int = 2000,
-        due_in_s: float = -1,
-        paused: bool = False,
-    ) -> list[uuid.UUID]:
-        async with sessions() as s:
-            user = await s.scalar(
-                text("SELECT id FROM users WHERE email = :e"), {"e": get_settings().dev_user_email}
+async def make_monitors(
+    sessions: Sessions, n: int = 1, *, url: str = "http://faultline.test/ok", threshold: int = 3
+) -> list[uuid.UUID]:
+    async with sessions() as s:
+        user = User(email=f"{uuid.uuid4().hex[:8]}@t.test", password_hash="!")
+        s.add(user)
+        await s.flush()
+        monitors = [
+            Monitor(
+                owner_id=user.id,
+                name=f"m{i}",
+                url=url,
+                interval_seconds=30,
+                failure_threshold=threshold,
+                next_run_at=datetime.now(UTC) - timedelta(seconds=1),
             )
-            if user is None:
-                u = User(email=get_settings().dev_user_email, password_hash="!")
-                s.add(u)
-                await s.flush()
-                user = u.id
-            ids = []
-            for i in range(n):
-                m = Monitor(
-                    owner_id=user,
-                    name=f"m-{uuid.uuid4().hex[:8]}-{i}",
-                    url=url,
-                    interval_seconds=interval,
-                    timeout_ms=timeout_ms,
-                    is_paused=paused,
-                )
-                s.add(m)
-                await s.flush()
-                s.add(
-                    MonitorState(
-                        monitor_id=m.id,
-                        next_run_at=datetime.now(UTC) + timedelta(seconds=due_in_s),
-                    )
-                )
-                ids.append(m.id)
-            await s.commit()
-            return ids
-
-    return make
+            for i in range(n)
+        ]
+        s.add_all(monitors)
+        await s.commit()
+        return [m.id for m in monitors]
 
 
-def attempt_error(t: datetime, fc: FailureClass) -> AttemptResult:
-    return AttemptResult(t, None, None, None, None, None, 1, None, fc, "x")
-
-
-def fake_result(outcome: Outcome = Outcome.PASS) -> ProbeResult:
-    now = datetime.now(UTC)
-    fc = None if outcome in (Outcome.PASS, Outcome.DEGRADED) else FailureClass.READ_TIMEOUT
+def result(ok: bool, failure: FailureClass = FailureClass.CONNECT) -> ProbeResult:
     return ProbeResult(
-        outcome=outcome,
-        failure_class=fc,
-        attempts=[
-            AttemptResult(now, "93.184.216.34", 1, 2, None, 3, 5, 200, fc, None),
-        ],
-        assertion_results=[],
-        response_headers=None,
-        response_snippet=None,
+        outcome=Outcome.PASS if ok else Outcome.FAIL,
+        failure_class=None if ok else failure,
+        http_status=200 if ok else None,
+        resolved_ip=None,
+        dns_ms=None,
+        connect_ms=None,
+        tls_ms=None,
+        ttfb_ms=None,
+        total_ms=5,
     )
 
 
-async def run_count(sessions: async_sessionmaker[AsyncSession], monitor_id: uuid.UUID) -> int:
+async def cycle(sessions: Sessions, monitor_id: uuid.UUID, res: ProbeResult) -> None:
+    """Make the monitor due, claim it, and record `res`: one full scheduled run."""
     async with sessions() as s:
-        n = await s.scalar(
-            text("SELECT count(*) FROM check_runs WHERE monitor_id = :m"), {"m": monitor_id}
+        await s.execute(
+            text("UPDATE monitors SET next_run_at = now() - interval '1 second' WHERE id = :id"),
+            {"id": monitor_id},
         )
-        return int(n or 0)
+        await s.commit()
+    async with sessions() as s:
+        claims = await claim_due(s, limit=10)
+    claim = next(c for c in claims if c.id == monitor_id)
+    async with sessions() as s:
+        await record_result(s, claim, res, started_at=datetime.now(UTC))
 
 
-# --- claim ---------------------------------------------------------------------------------
+async def monitor_row(sessions: Sessions, monitor_id: uuid.UUID) -> dict[str, object]:
+    async with sessions() as s:
+        row = await s.execute(text("SELECT * FROM monitors WHERE id = :id"), {"id": monitor_id})
+        return dict(row.mappings().one())
 
 
-async def test_concurrent_claims_never_return_the_same_monitor(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    ids = await make_monitors(40)
+async def incidents(sessions: Sessions, monitor_id: uuid.UUID) -> list[dict[str, object]]:
+    async with sessions() as s:
+        rows = await s.execute(
+            text("SELECT * FROM incidents WHERE monitor_id = :id ORDER BY opened_at"),
+            {"id": monitor_id},
+        )
+        return [dict(r) for r in rows.mappings()]
 
-    async def claim(worker: str) -> list[uuid.UUID]:
+
+# --- claiming ---------------------------------------------------------------------------
+
+
+async def test_a_due_monitor_is_claimed_once_while_leased(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions)
+    async with sessions() as s:
+        first = await claim_due(s, limit=10)
+    async with sessions() as s:
+        second = await claim_due(s, limit=10)
+    assert [c.id for c in first] == [mid]
+    assert second == []  # the lease hides it from every other worker
+
+
+async def test_an_expired_lease_is_reclaimed(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions)
+    async with sessions() as s:
+        await claim_due(s, limit=10)  # a worker takes it, then "dies"
+        await s.execute(text("UPDATE monitors SET locked_until = now() - interval '1 second'"))
+        await s.commit()
+    async with sessions() as s:
+        assert [c.id for c in await claim_due(s, limit=10)] == [mid]
+
+
+async def test_not_yet_due_monitors_are_not_claimed(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions)
+    async with sessions() as s:
+        await s.execute(
+            text("UPDATE monitors SET next_run_at = now() + interval '1 hour' WHERE id = :id"),
+            {"id": mid},
+        )
+        await s.commit()
+    async with sessions() as s:
+        assert await claim_due(s, limit=10) == []
+
+
+async def test_concurrent_workers_never_claim_the_same_monitor(sessions: Sessions) -> None:
+    await make_monitors(sessions, 40)
+
+    async def claim_all() -> list[uuid.UUID]:
         async with sessions() as s:
-            return [c.monitor_id for c in await claim_due(s, worker_id=worker, limit=40)]
+            return [c.id for c in await claim_due(s, limit=40)]
 
-    results = await asyncio.gather(*(claim(f"w{i}") for i in range(4)))
-    flat = [m for r in results for m in r]
-    assert len(flat) == len(set(flat)) == 40  # no duplicates, nothing lost
-    assert set(flat) == set(ids)
+    batches = await asyncio.gather(*(claim_all() for _ in range(5)))
+    claimed = [mid for batch in batches for mid in batch]
+    assert len(claimed) == 40
+    assert len(set(claimed)) == 40  # SKIP LOCKED: each monitor went to exactly one worker
 
 
-async def test_leased_monitor_is_not_claimed_again_until_lease_expires(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1, timeout_ms=2000)  # lease = 2*2 + 15 = 19 s
+# --- recording and incidents ------------------------------------------------------------
+
+
+async def test_recording_stores_the_run_and_schedules_the_next_one(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions)
+    await cycle(sessions, mid, result(True))
+    row = await monitor_row(sessions, mid)
+    assert row["status"] == "UP"
+    assert row["locked_until"] is None
+    assert row["last_checked_at"] is not None
+    assert row["next_run_at"] > datetime.now(UTC) + timedelta(seconds=20)  # now + interval
     async with sessions() as s:
-        assert len(await claim_due(s, worker_id="a", limit=5)) == 1
+        assert await s.scalar(text("SELECT count(*) FROM check_runs")) == 1
+
+
+async def test_failures_below_the_threshold_open_no_incident(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions, threshold=3)
+    await cycle(sessions, mid, result(True))
+    await cycle(sessions, mid, result(False))
+    await cycle(sessions, mid, result(False))
+    assert (await monitor_row(sessions, mid))["status"] == "UP"
+    assert await incidents(sessions, mid) == []
+
+
+async def test_outage_opens_one_incident_and_recovery_resolves_it(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions, threshold=3)
+    await cycle(sessions, mid, result(True))
+    for _ in range(5):  # two more failures than the threshold: still a single incident
+        await cycle(sessions, mid, result(False, FailureClass.TIMEOUT))
+
+    (inc,) = await incidents(sessions, mid)
+    assert inc["resolved_at"] is None
+    assert inc["failure_class"] == "TIMEOUT"
+    assert (await monitor_row(sessions, mid))["status"] == "DOWN"
     async with sessions() as s:
-        assert await claim_due(s, worker_id="b", limit=5) == []
-    later = datetime.now(UTC) + timedelta(seconds=20)
-    async with sessions() as s:
-        reclaimed = await claim_due(s, worker_id="b", limit=5, now=later)
-    assert [c.monitor_id for c in reclaimed] == [mid]
-
-
-async def test_paused_and_future_monitors_are_not_claimed(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    await make_monitors(1, paused=True)
-    await make_monitors(1, due_in_s=60)
-    async with sessions() as s:
-        assert await claim_due(s, worker_id="a", limit=10) == []
-
-
-async def test_claim_respects_limit_and_oldest_first(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [old] = await make_monitors(1, due_in_s=-100)
-    await make_monitors(3, due_in_s=-1)
-    async with sessions() as s:
-        claims = await claim_due(s, worker_id="a", limit=2)
-    assert len(claims) == 2
-    assert old in [c.monitor_id for c in claims]
-
-
-async def test_release_leases_makes_monitor_claimable_immediately(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1)
-    async with sessions() as s:
-        await claim_due(s, worker_id="a", limit=1)
-    async with sessions() as s:
-        assert await release_leases(s, worker_id="a", monitor_ids=[mid]) == 1
-    async with sessions() as s:
-        assert len(await claim_due(s, worker_id="b", limit=1)) == 1
-
-
-# --- complete (TX2) ------------------------------------------------------------------------
-
-
-async def _claim_one(
-    sessions: async_sessionmaker[AsyncSession], worker: str, now: datetime | None = None
-):  # type: ignore[no-untyped-def]
-    async with sessions() as s:
-        [c] = await claim_due(s, worker_id=worker, limit=1, now=now)
-    return c
-
-
-async def test_complete_records_run_advances_slot_and_clears_lease(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1, interval=30)
-    claim = await _claim_one(sessions, "a")
-    now = datetime.now(UTC)
-    async with sessions() as s:
-        out = await complete_run(
-            s, claim, fake_result(), worker_id="a", started_at=now, finished_at=now,
-            now=claim.scheduled_for + timedelta(seconds=1), jitter_s=0,
-        )  # fmt: skip
-    assert out is Completion.RECORDED
-    async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.lease_owner is None
-        assert st.next_run_at == claim.scheduled_for + timedelta(seconds=30)
-        assert st.health == "UP"
-        assert st.last_run_id is not None
-    assert await run_count(sessions, mid) == 1
-
-
-async def test_second_completion_of_same_slot_is_a_noop(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1)
-    claim = await _claim_one(sessions, "a")
-    now = datetime.now(UTC)
-    kw = dict(started_at=now, finished_at=now, jitter_s=0)
-    async with sessions() as s:
-        first = await complete_run(s, claim, fake_result(), worker_id="a", **kw)  # type: ignore[arg-type]
-    # Re-enter as if the same slot were executed again (lease re-acquired).
-    async with sessions() as s:
-        await s.execute(
-            text("UPDATE monitor_state SET lease_owner='a' WHERE monitor_id=:m"), {"m": mid}
-        )
-        await s.commit()
-    async with sessions() as s:
-        second = await complete_run(s, claim, fake_result(), worker_id="a", **kw)  # type: ignore[arg-type]
-    assert first is Completion.RECORDED
-    assert second is Completion.DUPLICATE
-    assert await run_count(sessions, mid) == 1
-
-
-async def test_expired_lease_taken_over_then_original_finishes_late_is_fenced(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    """docs/11 hard case 1: lease expiry while the original worker is still probing."""
-    [mid] = await make_monitors(1, interval=30, timeout_ms=1000)
-    a = await _claim_one(sessions, "A")
-    later = datetime.now(UTC) + timedelta(seconds=60)
-    b = await _claim_one(sessions, "B", now=later)  # A's lease expired; B takes the slot
-    assert a.scheduled_for == b.scheduled_for
-
-    t = datetime.now(UTC)
-    async with sessions() as s:
-        out_a = await complete_run(
-            s, a, fake_result(), worker_id="A", started_at=t, finished_at=t, jitter_s=0
-        )
-    # A recorded the evidence but must not touch state that B owns.
-    assert out_a is Completion.LEASE_LOST
-    async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.lease_owner == "B"
-        assert st.next_run_at == a.scheduled_for  # not advanced by A
-
-    async with sessions() as s:
-        out_b = await complete_run(
-            s, b, fake_result(), worker_id="B", started_at=t, finished_at=t, jitter_s=0
-        )
-    assert out_b is Completion.DUPLICATE  # run row exists; B still advances the slot
-    async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.lease_owner is None
-        assert st.next_run_at > a.scheduled_for
-    assert await run_count(sessions, mid) == 1  # exactly one run for the slot
-
-
-async def test_monitor_deleted_while_probing_is_handled(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1)
-    claim = await _claim_one(sessions, "a")
-    async with sessions() as s:
-        await s.execute(text("DELETE FROM monitors WHERE id = :m"), {"m": mid})
-        await s.commit()
-    t = datetime.now(UTC)
-    async with sessions() as s:
-        out = await complete_run(
-            s, claim, fake_result(), worker_id="a", started_at=t, finished_at=t
-        )
-    assert out is Completion.MONITOR_DELETED
-
-
-async def test_inconclusive_run_does_not_change_health(
-    sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1)
-    async with sessions() as s:
-        await s.execute(
-            text("UPDATE monitor_state SET health='UP' WHERE monitor_id=:m"), {"m": mid}
-        )
-        await s.commit()
-    claim = await _claim_one(sessions, "a")
-    t = datetime.now(UTC)
-    inconclusive = ProbeResult(
-        Outcome.INCONCLUSIVE,
-        FailureClass.PROBE_INTERNAL_ERROR,
-        [attempt_error(t, FailureClass.PROBE_INTERNAL_ERROR)],
-        [],
-        None,
-        None,
-    )  # fmt: skip
-    async with sessions() as s:
-        await complete_run(s, claim, inconclusive, worker_id="a", started_at=t, finished_at=t)
-    async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.health == "UP"
-
-
-# --- worker loop (real Faultline, real Postgres) --------------------------------------------
-
-
-def make_worker(sessions: async_sessionmaker[AsyncSession], **kw: object) -> Worker:
-    params: dict[str, object] = {
-        "policy": LOCAL,
-        "poll_interval_s": 0.1,
-        "shutdown_grace_s": 1.0,
-    }
-    params.update(kw)
-    return Worker(sessions, **params)  # type: ignore[arg-type]
-
-
-async def test_worker_runs_due_monitors_once_per_slot(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    ids = await make_monitors(5, url=f"{faultline}/ok", interval=30)
-    worker = make_worker(sessions, worker_id="w1")
-    task = asyncio.create_task(worker.run())
-    await asyncio.sleep(2.5)
-    worker.request_stop()
-    await asyncio.wait_for(task, 5)
-
-    async with sessions() as s:
-        rows = (
-            await s.execute(
-                text(
-                    "SELECT monitor_id, scheduled_for, outcome FROM check_runs ORDER BY monitor_id"
-                )
+        first_failure = await s.scalar(
+            text(
+                "SELECT started_at FROM check_runs WHERE outcome = 'FAIL' "
+                "ORDER BY started_at LIMIT 1 OFFSET 2"
             )
-        ).all()
-        leased = await s.scalar(
-            text("SELECT count(*) FROM monitor_state WHERE lease_owner IS NOT NULL")
         )
-    assert {r.monitor_id for r in rows} == set(ids)
-    assert len(rows) == 5  # interval 30 s: exactly one run each in 2.5 s
-    assert len({(r.monitor_id, r.scheduled_for) for r in rows}) == 5
-    assert all(r.outcome == "PASS" for r in rows)
-    assert leased == 0
+    # Backdated to the first failure of the streak that crossed the threshold.
+    assert inc["opened_at"] <= first_failure
+
+    await cycle(sessions, mid, result(True))
+    (inc,) = await incidents(sessions, mid)
+    assert inc["resolved_at"] is not None
+    assert (await monitor_row(sessions, mid))["status"] == "UP"
 
 
-async def test_two_workers_execute_each_slot_exactly_once_ac2(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    await make_monitors(30, url=f"{faultline}/ok", interval=30)
-    w1 = make_worker(sessions, worker_id="w1")
-    w2 = make_worker(sessions, worker_id="w2")
-    tasks = [asyncio.create_task(w.run()) for w in (w1, w2)]
-    await asyncio.sleep(3)
-    for w in (w1, w2):
-        w.request_stop()
-    await asyncio.wait_for(asyncio.gather(*tasks), 5)
+async def test_a_second_outage_is_a_second_incident(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions, threshold=1)
+    for ok in (False, True, False, True):
+        await cycle(sessions, mid, result(ok))
+    assert len(await incidents(sessions, mid)) == 2
 
+
+async def test_recording_for_a_deleted_monitor_is_a_no_op(sessions: Sessions) -> None:
+    (mid,) = await make_monitors(sessions)
     async with sessions() as s:
-        total = await s.scalar(text("SELECT count(*) FROM check_runs"))
-        distinct = await s.scalar(
-            text("SELECT count(DISTINCT (monitor_id, scheduled_for)) FROM check_runs")
-        )
-        workers = (await s.execute(text("SELECT DISTINCT worker_id FROM check_runs"))).all()
-    assert total == distinct == 30
-    assert len(workers) >= 1
-
-
-async def test_no_catch_up_storm_after_downtime_ac11(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1, url=f"{faultline}/ok", interval=30, due_in_s=-600)
-    worker = make_worker(sessions, jitter_s=10.0)  # next slot = now + 10 s, outside the window
-    task = asyncio.create_task(worker.run())
-    await asyncio.sleep(2.5)
-    worker.request_stop()
-    await asyncio.wait_for(task, 5)
-    assert await run_count(sessions, mid) == 1
+        (claim,) = await claim_due(s, limit=1)
     async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.next_run_at > datetime.now(UTC)  # no backlog of past-due slots
-
-
-async def test_concurrency_is_bounded(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    await make_monitors(6, url=f"{faultline}/slow?ms=1000", interval=30, timeout_ms=3000)
-    worker = make_worker(sessions, max_concurrency=2)
-    peak = 0
-    task = asyncio.create_task(worker.run())
-    for _ in range(25):
-        await asyncio.sleep(0.1)
-        peak = max(peak, worker.in_flight)
-    worker.request_stop()
-    await asyncio.wait_for(task, 10)
-    assert 1 <= peak <= 2
-
-
-async def test_graceful_stop_abandons_inflight_and_releases_leases_ac12(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
-) -> None:
-    [mid] = await make_monitors(1, url=f"{faultline}/hang", interval=30, timeout_ms=30000)
-    worker = make_worker(sessions, worker_id="w1", shutdown_grace_s=0.5)
-    task = asyncio.create_task(worker.run())
-    for _ in range(50):
-        await asyncio.sleep(0.1)
-        if worker.in_flight:
-            break
-    assert worker.in_flight == 1
-    t0 = asyncio.get_running_loop().time()
-    worker.request_stop()
-    await asyncio.wait_for(task, 5)
-    assert asyncio.get_running_loop().time() - t0 < 3
-
+        await s.execute(text("DELETE FROM monitors WHERE id = :id"), {"id": mid})
+        await s.commit()
     async with sessions() as s:
-        st = await s.get(MonitorState, mid)
-        assert st is not None
-        assert st.lease_owner is None  # handed back, claimable right away
-    assert await run_count(sessions, mid) == 0  # nothing half-recorded
+        assert await record_result(s, claim, result(True), started_at=datetime.now(UTC)) is False
 
 
-async def test_kill9_leaves_lease_and_another_worker_recovers_ac3(
-    faultline: str, sessions: async_sessionmaker[AsyncSession], make_monitors: MakeMonitors
+# --- the whole loop, against Faultline --------------------------------------------------
+
+
+async def test_worker_probes_a_real_endpoint_and_detects_an_outage(
+    sessions: Sessions, faultline: str
 ) -> None:
-    [mid] = await make_monitors(1, url=f"{faultline}/hang", interval=30, timeout_ms=30000)
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(BACKEND),
-        "WORKER_ID": "victim",
-        "POLL_INTERVAL_MS": "100",
-        "SSRF_ALLOW_PRIVATE_CIDRS": "127.0.0.0/8",
-        "ALLOWED_PORTS": "1-65535",
-    }
-    proc = subprocess.Popen(  # noqa: ASYNC220 - one short-lived child; not on a hot path
-        [sys.executable, "-m", "app.worker.main"], env=env, cwd=BACKEND.parent,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # fmt: skip
+    (ok_id,) = await make_monitors(sessions, url=f"{faultline}/ok")
+    (bad_id,) = await make_monitors(sessions, url=f"{faultline}/status/503", threshold=1)
+
+    worker = Worker(sessions, policy=LOCAL, poll_interval_s=0.05, shutdown_grace_s=2)
+    task = asyncio.create_task(worker.run())
     try:
-        owner = None
         for _ in range(100):
-            await asyncio.sleep(0.2)
-            async with sessions() as s:
-                owner = await s.scalar(
-                    text("SELECT lease_owner FROM monitor_state WHERE monitor_id=:m"), {"m": mid}
-                )
-            if owner == "victim":
+            await asyncio.sleep(0.1)
+            if (await monitor_row(sessions, bad_id))["status"] == "DOWN":
                 break
-        assert owner == "victim"
     finally:
-        proc.kill()  # TerminateProcess / SIGKILL: no cleanup code runs
-        proc.wait(5)
+        worker.request_stop()
+        await asyncio.wait_for(task, 5)
 
-    async with sessions() as s:
-        assert (
-            await s.scalar(
-                text("SELECT lease_owner FROM monitor_state WHERE monitor_id=:m"), {"m": mid}
-            )
-            == "victim"
-        )  # the dead worker's lease is still there
-    assert await run_count(sessions, mid) == 0
-
-    # After the lease expires another worker takes over the same slot.
-    later = datetime.now(UTC) + timedelta(seconds=2 * 30 + 16)
-    async with sessions() as s:
-        claims = await claim_due(s, worker_id="rescuer", limit=1, now=later)
-    assert [c.monitor_id for c in claims] == [mid]
+    assert (await monitor_row(sessions, ok_id))["status"] == "UP"
+    (inc,) = await incidents(sessions, bad_id)
+    assert inc["failure_class"] == "BAD_RESPONSE"

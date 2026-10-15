@@ -1,102 +1,99 @@
-"""initial: users, monitors, monitor_state, check_runs
+"""initial schema: users, sessions, monitors, check_runs, incidents
 
 Revision ID: 0001
 Revises:
 """
 
-import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql as pg
 
 revision = "0001"
 down_revision = None
 branch_labels = None
 depends_on = None
 
-TZ = sa.TIMESTAMP(timezone=True)
-
 
 def upgrade() -> None:
-    op.create_table(
-        "users",
-        sa.Column("id", pg.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()")),
-        sa.Column("email", sa.Text, nullable=False),
-        sa.Column("created_at", TZ, server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint("id", name="pk_users"),
-        sa.UniqueConstraint("email", name="uq_users_email"),
-    )
-    op.create_table(
-        "monitors",
-        sa.Column("id", pg.UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()")),
-        sa.Column("owner_id", pg.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.Text, nullable=False),
-        sa.Column("url", sa.Text, nullable=False),
-        sa.Column("method", sa.Text, server_default="GET", nullable=False),
-        sa.Column("interval_seconds", sa.Integer, server_default="60", nullable=False),
-        sa.Column("timeout_ms", sa.Integer, server_default="5000", nullable=False),
-        sa.Column("created_at", TZ, server_default=sa.func.now(), nullable=False),
-        sa.PrimaryKeyConstraint("id", name="pk_monitors"),
-        sa.ForeignKeyConstraint(
-            ["owner_id"], ["users.id"], ondelete="CASCADE", name="fk_monitors_owner_id_users"
-        ),
-        sa.UniqueConstraint("owner_id", "name", name="uq_monitors_owner_id"),
-        sa.CheckConstraint("method IN ('GET','HEAD')", name="method"),
-        sa.CheckConstraint("interval_seconds BETWEEN 30 AND 3600", name="interval"),
-        sa.CheckConstraint("timeout_ms BETWEEN 1000 AND 30000", name="timeout"),
-    )
-    op.create_index("ix_monitors_owner_created", "monitors", ["owner_id", "created_at"])
-    op.create_table(
-        "monitor_state",
-        sa.Column("monitor_id", pg.UUID(as_uuid=True)),
-        sa.Column("next_run_at", TZ, server_default=sa.func.now(), nullable=False),
-        sa.Column("health", sa.Text, server_default="UNKNOWN", nullable=False),
-        sa.Column("last_run_id", sa.BigInteger),
-        sa.Column("last_run_at", TZ),
-        sa.PrimaryKeyConstraint("monitor_id", name="pk_monitor_state"),
-        sa.ForeignKeyConstraint(
-            ["monitor_id"],
-            ["monitors.id"],
-            ondelete="CASCADE",
-            name="fk_monitor_state_monitor_id_monitors",
-        ),
-        sa.CheckConstraint("health IN ('UNKNOWN','UP','DEGRADED','DOWN','PAUSED')", name="health"),
-    )
-    op.create_table(
-        "check_runs",
-        sa.Column("id", sa.BigInteger, sa.Identity(), nullable=False),
-        sa.Column("monitor_id", pg.UUID(as_uuid=True), nullable=False),
-        sa.Column("scheduled_for", TZ, nullable=False),
-        sa.Column("started_at", TZ, nullable=False),
-        sa.Column("finished_at", TZ, nullable=False),
-        sa.Column("outcome", sa.Text, nullable=False),
-        sa.Column("failure_class", sa.Text),
-        sa.Column("http_status", sa.SmallInteger),
-        sa.Column("total_ms", sa.Integer),
-        sa.Column("error_detail", sa.Text),
-        sa.Column("worker_id", sa.Text, nullable=False),
-        sa.Column("trigger", sa.Text, server_default="schedule", nullable=False),
-        sa.PrimaryKeyConstraint("id", name="pk_check_runs"),
-        sa.ForeignKeyConstraint(
-            ["monitor_id"],
-            ["monitors.id"],
-            ondelete="CASCADE",
-            name="fk_check_runs_monitor_id_monitors",
-        ),
-        sa.UniqueConstraint("monitor_id", "scheduled_for", name="uq_check_runs_monitor_id"),
-        sa.CheckConstraint("outcome IN ('PASS','DEGRADED','FAIL','INCONCLUSIVE')", name="outcome"),
-        sa.CheckConstraint(
-            "(failure_class IS NULL) = (outcome IN ('PASS','DEGRADED'))",
-            name="failure_class",
-        ),
-    )
-    op.create_index(
-        "ix_check_runs_monitor_started", "check_runs", ["monitor_id", sa.text("started_at DESC")]
-    )
-    op.create_index("ix_check_runs_started", "check_runs", ["started_at"])
+    # asyncpg runs one statement per call, so the script is split on ";".
+    for statement in SCHEMA.split(";"):
+        if statement.strip():
+            op.execute(statement)
+
+
+SCHEMA = """
+        CREATE TABLE users (
+            id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            email         text NOT NULL UNIQUE,
+            password_hash text NOT NULL,
+            created_at    timestamptz NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE sessions (
+            id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+            token_hash bytea NOT NULL UNIQUE,
+            expires_at timestamptz NOT NULL
+        );
+        CREATE INDEX ix_sessions_user_id ON sessions (user_id);
+
+        -- Config plus scheduler bookkeeping. A monitor is due when next_run_at has passed
+        -- and nobody holds the lease (locked_until).
+        CREATE TABLE monitors (
+            id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            owner_id             uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+            created_at           timestamptz NOT NULL DEFAULT now(),
+            name                 text NOT NULL,
+            url                  text NOT NULL,
+            interval_seconds     integer NOT NULL DEFAULT 60,
+            timeout_ms           integer NOT NULL DEFAULT 5000,
+            expected_status      integer,
+            body_contains        text,
+            failure_threshold    smallint NOT NULL DEFAULT 3,
+            next_run_at          timestamptz NOT NULL DEFAULT now(),
+            locked_until         timestamptz,
+            status               text NOT NULL DEFAULT 'UNKNOWN',
+            consecutive_failures integer NOT NULL DEFAULT 0,
+            last_checked_at      timestamptz,
+            CONSTRAINT uq_monitors_owner_id UNIQUE (owner_id, name),
+            CONSTRAINT ck_monitors_interval CHECK (interval_seconds BETWEEN 1 AND 3600),
+            CONSTRAINT ck_monitors_timeout CHECK (timeout_ms BETWEEN 1000 AND 30000),
+            CONSTRAINT ck_monitors_failure_threshold CHECK (failure_threshold BETWEEN 1 AND 10),
+            CONSTRAINT ck_monitors_status CHECK (status IN ('UNKNOWN', 'UP', 'DOWN'))
+        );
+        CREATE INDEX ix_monitors_owner_created ON monitors (owner_id, created_at);
+        CREATE INDEX ix_monitors_next_run_at ON monitors (next_run_at);
+
+        CREATE TABLE check_runs (
+            id            bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            monitor_id    uuid NOT NULL REFERENCES monitors (id) ON DELETE CASCADE,
+            started_at    timestamptz NOT NULL,
+            outcome       text NOT NULL,
+            failure_class text,
+            http_status   smallint,
+            resolved_ip   inet,
+            dns_ms        integer,
+            connect_ms    integer,
+            tls_ms        integer,
+            ttfb_ms       integer,
+            total_ms      integer NOT NULL,
+            detail        text,
+            CONSTRAINT ck_check_runs_outcome CHECK (outcome IN ('PASS', 'FAIL')),
+            CONSTRAINT ck_check_runs_failure_class
+                CHECK ((failure_class IS NULL) = (outcome = 'PASS'))
+        );
+        CREATE INDEX ix_check_runs_monitor_started ON check_runs (monitor_id, started_at DESC);
+
+        -- An incident is open while resolved_at IS NULL, at most one per monitor.
+        CREATE TABLE incidents (
+            id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            monitor_id    uuid NOT NULL REFERENCES monitors (id) ON DELETE CASCADE,
+            opened_at     timestamptz NOT NULL,
+            resolved_at   timestamptz,
+            failure_class text NOT NULL
+        );
+        CREATE UNIQUE INDEX one_open_incident ON incidents (monitor_id) WHERE resolved_at IS NULL;
+        CREATE INDEX ix_incidents_monitor_opened ON incidents (monitor_id, opened_at);
+"""
 
 
 def downgrade() -> None:
-    op.drop_table("check_runs")
-    op.drop_table("monitor_state")
-    op.drop_table("monitors")
-    op.drop_table("users")
+    op.execute("DROP TABLE incidents, check_runs, monitors, sessions, users")

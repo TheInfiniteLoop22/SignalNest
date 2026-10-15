@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # worker
-    worker_id: str = ""  # empty -> "<hostname>-<pid>"
     max_concurrency: int = 20
     poll_interval_ms: int = 1000
     claim_batch_max: int = 50

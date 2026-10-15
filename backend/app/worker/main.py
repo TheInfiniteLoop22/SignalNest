@@ -6,7 +6,7 @@ import signal
 
 from app.config import get_settings
 from app.db.session import SessionLocal
-from app.services.probe_once import policy_from_settings
+from app.probe.ssrf import SsrfPolicy
 from app.worker.loop import Worker
 
 
@@ -22,8 +22,9 @@ async def amain() -> None:
     cfg = get_settings()
     worker = Worker(
         SessionLocal,
-        policy=policy_from_settings(),
-        worker_id=cfg.worker_id or None,
+        policy=SsrfPolicy.from_settings(
+            cfg.allowed_ports, cfg.ssrf_allow_private_cidrs, cfg.allowed_hosts
+        ),
         max_concurrency=cfg.max_concurrency,
         poll_interval_s=cfg.poll_interval_ms / 1000,
         claim_batch_max=cfg.claim_batch_max,

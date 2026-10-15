@@ -3,7 +3,6 @@
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -12,7 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.models import Monitor, MonitorState, User
+from app.db.models import Monitor, User
 from app.db.session import get_session
 from app.worker.loop import Worker
 
@@ -66,23 +65,17 @@ async def test_worker_survives_a_db_outage_and_recovers_without_restart(  # type
         u = User(email=f"{uuid.uuid4().hex[:8]}@t.test", password_hash="!")
         s.add(u)
         await s.flush()
-        m = Monitor(owner_id=u.id, name="m", url=f"{faultline}/ok", interval_seconds=30,
-                    timeout_ms=2000)  # fmt: skip
+        m = Monitor(owner_id=u.id, name="m", url=f"{faultline}/ok", interval_seconds=30)
         s.add(m)
-        await s.flush()
-        s.add(MonitorState(monitor_id=m.id, next_run_at=datetime.now(UTC) - timedelta(seconds=1)))
         await s.commit()
         mid = m.id
 
     worker = Worker(
         flaky,  # type: ignore[arg-type]
         policy=LOCAL_POLICY,
-        worker_id="w1",
         poll_interval_s=0.05,
-        db_backoff_min_s=0.2,
-        db_backoff_max_s=0.4,
+        db_retry_s=0.2,
         shutdown_grace_s=1,
-        jitter_s=10.0,
     )
     flaky.down = True
     task = asyncio.create_task(worker.run())
