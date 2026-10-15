@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M0 (not started — awaiting plan approval)
+CURRENT MILESTONE: M0 (in progress — scaffolding done; CI workflow + learning-log answers pending)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -23,6 +23,23 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | | M10 | Polish: README with measured numbers, demo script, threat model review, MVP tag `v1.0.0` | 3–4 days |
 | **F. Next iteration** | M11+ | Webhook outbox, canary, rollups, redirects, e2e, (stretch) LLM brief | as time allows |
 
+## Progress tracker
+
+| Milestone | Status | Notes |
+|---|---|---|
+| M0 | 🟡 In progress | Scaffolding done 2026-10-15; open: CI workflow (learner-owned), LEARNING_LOG answers, branch protection, project board |
+| M1–M10 | ⬜ Not started | |
+
+### Deviations log
+| Date | Milestone | Deviation | Reason |
+|---|---|---|---|
+| 2026-10-15 | M0 | Initial planning-pack commit pushed straight to `main`; M0 work is on branch `m0/foundations` | User asked for the docs commit on `main`; all later work follows branch-per-milestone |
+| 2026-10-15 | M0 | Pair-built scaffolding started before the formal "study check" quiz | User explicitly said "proceed"; the quiz is deferred to the M0 checkpoint |
+| 2026-10-15 | M0 | Tooling choice: **uv** (not pip-tools) | One tool for Python version, venv and lockfile (`uv.lock`); fast; needed to pin 3.12 |
+| 2026-10-15 | M0 | `ruff` excludes `docs/` | ruff formats Python snippets inside Markdown, which would rewrite the spec's illustrative code |
+| 2026-10-15 | M0 | `mypy --strict` not yet enabled on `app/probe`/`app/worker` | Those packages don't exist yet; strict overrides are added when they are created (M2/M4) |
+| 2026-10-15 | M0 | GitHub Project board and branch protection deferred | Protection needs CI check names, which exist only after the CI workflow is written |
+
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 
 Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You implement · Pair-built · Tests / Done when · Checkpoint questions.**
@@ -34,6 +51,14 @@ Each milestone below lists: **Deliverable · Study first · 🧑‍💻 You impl
 - **Study first:** virtual envs & lockfiles; what a Docker healthcheck is; what CI runs on a PR vs on push.
 - **🧑‍💻 You implement:** the CI workflow YAML (Claude reviews).
 - **Done when:** a PR shows green CI; `docker compose up db` reaches healthy.
+- **Status (2026-10-15):**
+  - [x] repo layout (minimal: `backend/app`, `backend/tests/{unit,integration}`), `pyproject.toml` + `uv.lock`
+  - [x] ruff / mypy / pytest configured; "it runs" test passes (`uv run pytest`)
+  - [x] `docker-compose.yml` Postgres 16 + `pg_isready` healthcheck — verified `healthy`
+  - [x] `.env.example`, `CHANGELOG.md`, `docs/LEARNING_LOG.md`
+  - [ ] 🧑‍💻 `.github/workflows/ci.yml` — **yours to write**; target jobs: lint (`ruff check`, `ruff format --check`), types (`mypy backend/app`), test (`pytest`) using `astral-sh/setup-uv`
+  - [ ] LEARNING_LOG readiness answers + M0 checkpoint quiz
+  - [ ] Project board with M1 issues; branch protection on `main` once CI exists
 - **Checkpoint:** Why a lockfile? What's the difference between `depends_on` and a healthcheck condition? What does CI prove and what doesn't it?
 
 ## M1 — Tiny vertical slice (end-to-end thinnest path)

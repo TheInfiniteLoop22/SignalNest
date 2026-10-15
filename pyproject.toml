@@ -1,0 +1,36 @@
+[project]
+name = "signalnest"
+version = "0.0.0"
+description = "Self-hosted API reliability workbench"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+markers = ["integration: needs real Postgres (docker compose up db)"]
+
+[tool.ruff]
+line-length = 100
+src = ["backend"]
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "backend"
+explicit_package_bases = true
+# strict is required on app/probe and app/worker (CLAUDE.md §3); they don't exist yet.
+# Per-module strict overrides are added as those packages appear.
