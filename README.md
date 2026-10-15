@@ -75,5 +75,4 @@ docs/                    ARCHITECTURE, DECISIONS, INTERVIEW_PREP
 ## Limits (on purpose)
 
 No notifications, no redirects followed, GET only, no custom headers, one vantage point, no
-retention job, not deployed anywhere. The full-featured version (retries, probe assertions,
-diagnosis hints, metrics, deployment assets) is preserved at the `v1.0.0` tag.
+data retention, not deployed anywhere.

@@ -5,7 +5,7 @@ You are working with **Gautam**, a CS student building SignalNest to *learn* and
 ## 0. Source of truth
 
 - Project docs live in `docs/` (`ARCHITECTURE.md`, `DECISIONS.md`, `INTERVIEW_PREP.md`). Read the relevant one **before** touching related code.
-- The project is intentionally small. The full-featured version is the `v1.0.0` tag; do not bring features back without asking.
+- The project is intentionally small. Ask before adding features.
 - If code and docs disagree, stop and ask which is right. Then update the loser in the same change.
 
 ## 1. How every milestone runs

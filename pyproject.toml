@@ -1,7 +1,7 @@
 [project]
 name = "signalnest"
 version = "0.0.0"
-description = "Self-hosted API reliability workbench"
+description = "Small self-hosted uptime monitor"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "alembic>=1.20.0",
@@ -45,8 +45,6 @@ select = ["E", "F", "I", "B", "UP", "ASYNC"]
 python_version = "3.12"
 mypy_path = "backend"
 explicit_package_bases = true
-# strict is required on app/probe and app/worker (CLAUDE.md §3); they don't exist yet.
-# Per-module strict overrides are added as those packages appear.
 
 [tool.coverage.run]
 source = ["backend/app"]
@@ -55,8 +53,4 @@ source = ["backend/app"]
 concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
-omit = ["backend/app/cli.py", "backend/app/worker/main.py"]  # process entrypoints, exercised manually
-
-[tool.ruff.lint.per-file-ignores]
-# One-off operator scripts: long SQL and print lines read better unwrapped.
-"ops/*.py" = ["E501"]
+omit = ["backend/app/cli.py", "backend/app/worker/main.py"]  # process entrypoints

@@ -48,5 +48,4 @@
 ## What this project does not do (say it before they ask)
 
 No notifications, one vantage point, GET only, no redirect following, no data retention, not
-deployed. The earlier full-featured version, with retries, assertions, hints and deployment
-assets, is the `v1.0.0` tag.
+deployed.

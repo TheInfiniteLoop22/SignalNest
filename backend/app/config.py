@@ -6,7 +6,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    env: str = "dev"
     database_url: str = "postgresql+asyncpg://signalnest:change-me@localhost:5432/signalnest"
     log_level: str = "INFO"
 
