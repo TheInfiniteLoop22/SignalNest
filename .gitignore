@@ -26,3 +26,6 @@ Thumbs.db
 
 frontend/node_modules/
 
+
+# local assistant instructions
+CLAUDE.md
