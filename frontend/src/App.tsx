@@ -5,12 +5,11 @@ import { SESSION_EXPIRED_EVENT } from "./api/client";
 import { keys, useMe } from "./api/hooks";
 import { Layout } from "./components/Layout";
 import { Loading } from "./components/Common";
-import { IncidentDetailPage, IncidentsPage } from "./pages/Incidents";
+import { IncidentsPage } from "./pages/Incidents";
 import { LoginPage } from "./pages/Login";
 import { MonitorDetailPage } from "./pages/MonitorDetail";
 import { MonitorFormPage } from "./pages/MonitorForm";
 import { MonitorsPage } from "./pages/Monitors";
-import { RunDetailPage } from "./pages/RunDetail";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useMe();
@@ -50,9 +49,7 @@ export function App() {
         <Route path="monitors/new" element={<MonitorFormPage />} />
         <Route path="monitors/:id" element={<MonitorDetailPage />} />
         <Route path="monitors/:id/edit" element={<MonitorFormPage />} />
-        <Route path="runs/:runId" element={<RunDetailPage />} />
         <Route path="incidents" element={<IncidentsPage />} />
-        <Route path="incidents/:incidentId" element={<IncidentDetailPage />} />
         <Route path="*" element={<p>Page not found.</p>} />
       </Route>
     </Routes>

@@ -10,11 +10,6 @@
   --warn: #b26a00;
   --bad: #c0302b;
   --neutral: #6b7280;
-  --wf-dns: #8b5cf6;
-  --wf-connect: #0ea5e9;
-  --wf-tls: #14b8a6;
-  --wf-ttfb: #f59e0b;
-  --wf-body: #94a3b8;
   color-scheme: light dark;
 }
 
@@ -172,24 +167,6 @@ textarea:focus-visible {
   margin: 1rem 0;
   overflow-x: auto;
 }
-.stats {
-  display: flex;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  margin: 0.5rem 0 1rem;
-}
-.stat-value {
-  font-size: 1.4rem;
-  font-weight: 600;
-}
-.stat-label {
-  color: var(--muted);
-  font-size: 0.85em;
-}
-.chart {
-  min-width: 320px;
-}
-
 table.data {
   width: 100%;
   border-collapse: collapse;
@@ -228,39 +205,20 @@ table.data thead th {
   border-radius: 50%;
   background: currentColor;
 }
-.health-up,
-.outcome-pass,
-.incident-resolved {
+.badge-up,
+.badge-pass,
+.badge-resolved {
   color: var(--ok);
 }
-.health-degraded,
-.outcome-degraded {
-  color: var(--warn);
-}
-.health-down,
-.outcome-fail,
-.incident-open {
+.badge-down,
+.badge-fail,
+.badge-open {
   color: var(--bad);
 }
-.health-paused,
-.health-unknown,
-.outcome-inconclusive {
+.badge-unknown {
   color: var(--neutral);
 }
 
-.strip {
-  display: inline-flex;
-  gap: 1px;
-  vertical-align: middle;
-}
-.strip-cell {
-  width: 5px;
-  height: 18px;
-  background: currentColor;
-  border-radius: 1px;
-}
-
-.banner,
 .notice,
 .error-box {
   border: 1px solid var(--border);
@@ -270,7 +228,6 @@ table.data thead th {
   margin: 0.75rem 0;
   background: var(--surface);
 }
-.banner,
 .error-box {
   border-left-color: var(--bad);
 }
@@ -321,15 +278,6 @@ fieldset {
   display: grid;
   gap: 0.75rem;
 }
-label.inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-label.inline select {
-  width: auto;
-}
-
 .auth {
   max-width: 360px;
   margin: 4rem auto;
@@ -351,83 +299,6 @@ label.inline select {
   padding: 2rem 1rem;
   border: 1px dashed var(--border);
   border-radius: 8px;
-}
-
-ul.plain {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-ul.plain li {
-  padding: 0.3rem 0;
-}
-.timeline {
-  padding-left: 1.2rem;
-}
-.snippet {
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.6rem;
-  max-height: 24rem;
-  overflow: auto;
-}
-
-/* Phase waterfall */
-.waterfall {
-  margin: 0;
-}
-.waterfall-track {
-  position: relative;
-  height: 22px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.wf-seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-}
-.wf-dns {
-  background: var(--wf-dns);
-}
-.wf-connect {
-  background: var(--wf-connect);
-}
-.wf-tls {
-  background: var(--wf-tls);
-}
-.wf-ttfb {
-  background: var(--wf-ttfb);
-}
-.wf-body {
-  background: var(--wf-body);
-}
-.waterfall-table {
-  margin-top: 0.5rem;
-  border-collapse: collapse;
-}
-.waterfall-table th,
-.waterfall-table td {
-  text-align: left;
-  padding: 0.15rem 1rem 0.15rem 0;
-  font-weight: 400;
-}
-.waterfall-table tr.total th,
-.waterfall-table tr.total td {
-  font-weight: 600;
-  border-top: 1px solid var(--border);
-}
-.swatch {
-  display: inline-block;
-  width: 0.8rem;
-  height: 0.8rem;
-  border-radius: 2px;
-  vertical-align: middle;
 }
 
 @media (max-width: 640px) {

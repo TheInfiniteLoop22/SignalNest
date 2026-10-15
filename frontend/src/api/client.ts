@@ -9,13 +9,6 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
-
-  /** field -> message, for mapping server validation errors onto form fields. */
-  get fieldErrors(): Record<string, string> {
-    const out: Record<string, string> = {};
-    for (const e of this.problem?.errors ?? []) out[e.field] = e.message;
-    return out;
-  }
 }
 
 /** Fired when an authenticated request comes back 401 (session expired or revoked). */

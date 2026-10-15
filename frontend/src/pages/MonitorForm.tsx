@@ -1,161 +1,140 @@
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useMonitor, useSaveMonitor } from "../api/hooks";
+import type { MonitorInput } from "../api/types";
 import { ErrorBox, Loading } from "../components/Common";
-import {
-  FORM_DEFAULTS,
-  fromMonitor,
-  monitorFormSchema,
-  toMonitorInput,
-  type MonitorFormParsed,
-  type MonitorFormValues,
-} from "../lib/monitorForm";
 
-function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-      {hint && !error && <span className="muted small">{hint}</span>}
-      {error && (
-        <span role="alert" className="field-error">
-          {error}
-        </span>
-      )}
-    </label>
-  );
-}
+const DEFAULTS: MonitorInput = {
+  name: "",
+  url: "",
+  interval_seconds: 60,
+  timeout_ms: 5000,
+  expected_status: null,
+  body_contains: null,
+  failure_threshold: 3,
+};
 
 export function MonitorFormPage() {
   const { id } = useParams();
-  const editing = id !== undefined;
   const existing = useMonitor(id ?? "");
-  if (editing && existing.isLoading) return <Loading />;
-  if (editing && existing.error) return <ErrorBox error={existing.error} />;
-  const initial = editing && existing.data ? fromMonitor(existing.data) : FORM_DEFAULTS;
-  return <FormInner id={id} initial={initial} />;
+  if (id && existing.isLoading) return <Loading />;
+  if (id && existing.error) return <ErrorBox error={existing.error} />;
+  return <FormInner id={id} initial={id && existing.data ? existing.data : DEFAULTS} />;
 }
 
-function FormInner({ id, initial }: { id: string | undefined; initial: MonitorFormValues }) {
+function FormInner({ id, initial }: { id: string | undefined; initial: MonitorInput }) {
   const navigate = useNavigate();
   const save = useSaveMonitor(id);
-  const {
-    register,
-    handleSubmit,
-    setError,
-    formState: { errors, isSubmitting },
-  } = useForm<MonitorFormValues, unknown, MonitorFormParsed>({
-    resolver: zodResolver(monitorFormSchema),
-    defaultValues: initial,
+  const [form, setForm] = useState<MonitorInput>({
+    name: initial.name,
+    url: initial.url,
+    interval_seconds: initial.interval_seconds,
+    timeout_ms: initial.timeout_ms,
+    expected_status: initial.expected_status,
+    body_contains: initial.body_contains,
+    failure_threshold: initial.failure_threshold,
   });
+  const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(values: MonitorFormParsed) {
+  const set = <K extends keyof MonitorInput>(key: K, value: MonitorInput[K]) =>
+    setForm((f) => ({ ...f, [key]: value }));
+  const num = (v: string) => (v === "" ? null : Number(v));
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
     try {
-      const saved = await save.mutateAsync(toMonitorInput(values));
+      const saved = await save.mutateAsync(form);
       navigate(`/monitors/${saved.id}`);
-    } catch (e) {
-      if (e instanceof ApiError) {
-        // Map server-side field errors back onto the form; fall back to the URL field for
-        // policy rejections (blocked-target / invalid-target), which are about the URL.
-        const fields = e.fieldErrors;
-        let placed = false;
-        for (const [field, message] of Object.entries(fields)) {
-          if (field in FORM_DEFAULTS) {
-            setError(field as keyof MonitorFormValues, { message });
-            placed = true;
-          }
-        }
-        if (!placed && /blocked-target|invalid-target/.test(e.problem?.type ?? "")) {
-          setError("url", { message: e.message });
-        } else if (!placed && e.status === 409) {
-          setError("name", { message: e.message });
-        }
-      }
+    } catch (err) {
+      // The server is the validator (blocked URL, duplicate name, interval too low...).
+      setError(err instanceof ApiError ? err.message : "Could not reach the server");
     }
   }
-
-  const serverError = save.error instanceof ApiError ? save.error : null;
-  const showGenericError =
-    serverError && Object.keys(serverError.fieldErrors).length === 0 && ![409, 422].includes(serverError.status);
 
   return (
     <>
       <h1>{id ? "Edit monitor" : "New monitor"}</h1>
-      <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="form">
-        <Field label="Name" error={errors.name?.message}>
-          <input {...register("name")} />
-        </Field>
-        <Field label="URL" error={errors.url?.message} hint="http or https; private and loopback addresses are refused">
-          <input {...register("url")} placeholder="https://api.example.com/health" />
-        </Field>
+      <form onSubmit={(e) => void onSubmit(e)} className="form">
+        <label className="field">
+          <span>Name</span>
+          <input value={form.name} onChange={(e) => set("name", e.target.value)} required maxLength={100} />
+        </label>
+        <label className="field">
+          <span>URL</span>
+          <input
+            value={form.url}
+            onChange={(e) => set("url", e.target.value)}
+            placeholder="https://api.example.com/health"
+            required
+          />
+          <span className="muted small">http or https; private and loopback addresses are refused</span>
+        </label>
         <div className="row">
-          <Field label="Method" error={errors.method?.message}>
-            <select {...register("method")}>
-              <option>GET</option>
-              <option>HEAD</option>
-            </select>
-          </Field>
-          <Field label="Interval (s)" error={errors.interval_seconds?.message}>
-            <input type="number" {...register("interval_seconds")} />
-          </Field>
-          <Field label="Timeout (ms)" error={errors.timeout_ms?.message}>
-            <input type="number" {...register("timeout_ms")} />
-          </Field>
-          <Field label="Degraded above (ms)" error={errors.degraded_ms?.message} hint="optional">
-            <input type="number" {...register("degraded_ms")} />
-          </Field>
+          <label className="field">
+            <span>Interval (s)</span>
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              value={form.interval_seconds}
+              onChange={(e) => set("interval_seconds", Number(e.target.value))}
+            />
+          </label>
+          <label className="field">
+            <span>Timeout (ms)</span>
+            <input
+              type="number"
+              min={1000}
+              max={30000}
+              value={form.timeout_ms}
+              onChange={(e) => set("timeout_ms", Number(e.target.value))}
+            />
+          </label>
+          <label className="field">
+            <span>Failures before incident</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={form.failure_threshold}
+              onChange={(e) => set("failure_threshold", Number(e.target.value))}
+            />
+          </label>
         </div>
         <div className="row">
-          <Field label="Failures to open incident" error={errors.failure_threshold?.message}>
-            <input type="number" {...register("failure_threshold")} />
-          </Field>
-          <Field label="Successes to resolve" error={errors.recovery_threshold?.message}>
-            <input type="number" {...register("recovery_threshold")} />
-          </Field>
+          <label className="field">
+            <span>Expected status</span>
+            <input
+              type="number"
+              value={form.expected_status ?? ""}
+              onChange={(e) => set("expected_status", num(e.target.value))}
+            />
+            <span className="muted small">optional; default is any 2xx or 3xx</span>
+          </label>
+          <label className="field">
+            <span>Body contains</span>
+            <input
+              value={form.body_contains ?? ""}
+              onChange={(e) => set("body_contains", e.target.value || null)}
+              maxLength={200}
+            />
+          </label>
         </div>
 
-        <fieldset>
-          <legend>Assertions (optional)</legend>
-          <Field label="Allowed status codes" error={errors.status_values?.message} hint="e.g. 200, 204. Default: 200-399">
-            <input {...register("status_values")} />
-          </Field>
-          <Field label="Respond faster than (ms)" error={errors.max_latency_ms?.message}>
-            <input type="number" {...register("max_latency_ms")} />
-          </Field>
-          <Field label="Body contains" error={errors.body_contains?.message}>
-            <input {...register("body_contains")} />
-          </Field>
-          <div className="row">
-            <Field label="JSON path" error={errors.json_path?.message} hint="e.g. status or items.0.id">
-              <input {...register("json_path")} />
-            </Field>
-            <Field label="Must equal" error={errors.json_value?.message}>
-              <input {...register("json_value")} />
-            </Field>
-          </div>
-        </fieldset>
-
-        <Field label="Headers" error={errors.headers_text?.message} hint="One per line: Name: value (no Authorization or Cookie)">
-          <textarea rows={3} {...register("headers_text")} />
-        </Field>
-
-        {showGenericError && <ErrorBox error={serverError} />}
-        {serverError && !showGenericError && Object.keys(serverError.fieldErrors).length === 0 && (
+        {error && (
           <p role="alert" className="field-error">
-            {serverError.message}
+            {error}
           </p>
         )}
-
         <div className="actions">
-          <button type="submit" disabled={isSubmitting || save.isPending}>
+          <button type="submit" disabled={save.isPending}>
             {id ? "Save changes" : "Create monitor"}
           </button>
           <Link to={id ? `/monitors/${id}` : "/"}>Cancel</Link>
         </div>
       </form>
-
     </>
   );
 }
