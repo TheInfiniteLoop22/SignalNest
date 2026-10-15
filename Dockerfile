@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:20-slim AS web
+FROM node:25-slim AS web
 WORKDIR /web
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
