@@ -58,3 +58,7 @@ concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 omit = ["backend/app/cli.py", "backend/app/worker/main.py"]  # process entrypoints, exercised manually
+
+[tool.ruff.lint.per-file-ignores]
+# One-off operator scripts: long SQL and print lines read better unwrapped.
+"ops/*.py" = ["E501"]
