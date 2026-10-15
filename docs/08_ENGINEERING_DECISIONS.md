@@ -104,3 +104,14 @@ stateDiagram-v2
 ## ADR-016 — Observability libraries
 - **Decision:** stdlib `logging` with a small JSON formatter (or `structlog` if you want — justify), `prometheus_client` for `/metrics`. No OpenTelemetry in MVP.
 - **Interview Q:** Logs vs metrics vs traces — which answers which question?
+
+## ADR-017 — Phase timings come from httpcore trace hooks
+- **Context:** M2 spike. We need DNS / connect / TLS / TTFB per attempt without a custom HTTP client.
+- **Decision:** pass `extensions={"trace": callback}` to httpx. With the installed httpcore, an HTTPS request emits (in order) `connection.connect_tcp.started/complete`, `connection.start_tls.started/complete`, `http11.send_request_headers.*`, `http11.send_request_body.*`, `http11.receive_response_headers.started/complete`, `http11.receive_response_body.*`, `http11.response_closed.*`. Derived values: `connect_ms` = connect_tcp span, `tls_ms` = start_tls span, `ttfb_ms` = receive_response_headers span (server think time to first byte of headers). **DNS is not exposed by httpcore**: the engine resolves the hostname itself (injected `Resolver`), times that, then connects to the chosen IP with `Host` and `sni_hostname` set (which is also what M3's IP pinning needs).
+- **Consequences:**
+  - A custom `transport` (used in tests) bypasses the trace events, so those attempts have no connect/TLS/TTFB numbers.
+  - The tracked *phase* (dns/connect/tls/headers/body) is what turns a bare `TimeoutError` from the overall deadline into the specific class: connect -> CONNECT_TIMEOUT, headers -> READ_TIMEOUT, body -> TOTAL_TIMEOUT.
+  - Event names are an httpcore implementation detail; pin httpcore via the lockfile and keep the engine integration tests, which fail if names change.
+  - On Windows a refused loopback connect takes about 2 s to be reported (SYN retries), so the CONNECTION_REFUSED test uses a 5 s budget.
+- **Connect-timeout testing (ADR-015 question):** a transport seam that never returns, not a non-routable address. The classification of a real `httpx.ConnectTimeout` is covered by a unit test.
+

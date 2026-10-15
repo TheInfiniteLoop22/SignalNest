@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, IPvAnyAddress
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,14 @@ class RunOut(BaseModel):
     outcome: str
     failure_class: str | None
     http_status: int | None
+    dns_ms: int | None
+    connect_ms: int | None
+    tls_ms: int | None
+    ttfb_ms: int | None
     total_ms: int | None
+    resolved_ip: IPvAnyAddress | None
+    attempt_count: int
+    assertion_results: list[dict[str, Any]]
     error_detail: str | None
     trigger: str
 

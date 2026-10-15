@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import uuid
 
-import httpx
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -34,14 +33,23 @@ async def seed(url: str) -> None:
 
 
 async def probe(monitor_id: uuid.UUID) -> None:
-    async with httpx.AsyncClient() as client, SessionLocal() as session:
-        run = await probe_monitor(
-            session, monitor_id, client=client, worker_id=get_settings().worker_id
-        )
+    async with SessionLocal() as session:
+        run, result = await probe_monitor(session, monitor_id, worker_id=get_settings().worker_id)
+    print(f"run={run.id} outcome={result.outcome} class={result.failure_class}")
+    print(f"{'attempt':<8}{'ip':<16}{'dns':>6}{'conn':>6}{'tls':>6}{'ttfb':>6}{'total':>7}  result")
+    for i, a in enumerate(result.attempts, 1):
+
+        def ms(v: int | None) -> str:
+            return "-" if v is None else str(v)
+
+        outcome = a.error_class or f"HTTP {a.http_status}"
         print(
-            f"run={run.id} outcome={run.outcome} status={run.http_status} "
-            f"total_ms={run.total_ms} class={run.failure_class}"
+            f"{i:<8}{a.resolved_ip or '-':<16}{ms(a.dns_ms):>6}{ms(a.connect_ms):>6}"
+            f"{ms(a.tls_ms):>6}{ms(a.ttfb_ms):>6}{a.total_ms:>7}  {outcome}"
         )
+    for r in result.assertion_results:
+        verdict = "ok" if r.passed else "FAIL"
+        print(f"assert {r.type}: {verdict} expected={r.expected} actual={r.actual}")
 
 
 def main() -> None:

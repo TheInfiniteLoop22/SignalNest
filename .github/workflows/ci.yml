@@ -26,6 +26,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run mypy backend/app faultline
+      - run: uv run mypy --strict backend/app/probe
 
   test:
     runs-on: ubuntu-latest

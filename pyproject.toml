@@ -19,6 +19,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pytest-asyncio>=1.4.0",
+    "trustme>=1.2.1",
 ]
 
 [tool.uv]

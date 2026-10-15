@@ -1,7 +1,7 @@
 # 12 — Phase-wise Build Plan
 
 ```
-CURRENT MILESTONE: M2 (not started)
+CURRENT MILESTONE: M3 (not started)
 ```
 
 Durations assume ~12–15 hrs/week alongside college and placements. They are **estimates for planning, not commitments**. If a milestone overruns by 50 %, stop and re-scope rather than rush.
@@ -29,7 +29,8 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 |---|---|---|
 | M0 | ✅ Done | Scaffolding + CI green 2026-10-15; checkpoint quiz skipped (see deviations) |
 | M1 | ✅ Done | 2026-10-15. 4 tests (1 unit, 3 integration) pass locally; CI has a Postgres service job. CLI run 3x -> API listed 3 runs newest-first |
-| M2–M10 | ⬜ Not started | |
+| M2 | ✅ Done | 2026-10-15. 22 engine tests against real sockets + 37 unit tests; `mypy --strict app/probe` clean. ADR-017 written |
+| M3–M10 | ⬜ Not started | |
 
 ### Deviations log
 | Date | Milestone | Deviation | Reason |
@@ -50,6 +51,13 @@ Durations assume ~12–15 hrs/week alongside college and placements. They are **
 | 2026-10-15 | M1 | Failure class `UNCLASSIFIED_ERROR` for network exceptions | Placeholder until `classify.py` in M2 |
 | 2026-10-15 | M1 | Integration tests override `get_session` with the test session | App's module-level async engine binds to one event loop; reusing it across pytest-asyncio loops fails on Windows |
 | 2026-10-15 | M1 | Learner-owned pieces (model, migration, runs query) built by Claude | Autonomous workflow requested (see M0 deviations) |
+| 2026-10-15 | M2 | `DNS_*` handled via an injected resolver and the engine resolves the host itself | httpcore exposes no DNS event (ADR-017); also required for IP pinning |
+| 2026-10-15 | M2 | IP pinning (Host header + `sni_hostname`) implemented in M2, not M3 | DNS timing needs the engine to own resolution; M3 still owns the policy, the 40-case table and the TLS-by-IP spike/test |
+| 2026-10-15 | M2 | `TargetPolicy` is a plain `Callable[[str], bool]` with `allow_all` default | Placeholder seam for M3's `ssrf.py`; `BLOCKED_BY_POLICY` path already tested with a fake policy |
+| 2026-10-15 | M2 | Migration `0002` adds evidence columns; `probe_once` now calls the engine; Faultline gained the `/scenario` modes and `/flaky` early | Needed to persist what the engine measures; scenarios are cheap and used by M5 |
+| 2026-10-15 | M2 | `UNCLASSIFIED_ERROR` removed; unknown exceptions -> `PROBE_INTERNAL_ERROR` (INCONCLUSIVE) | Per spec: never blame the target for our bug |
+| 2026-10-15 | M2 | Learner-owned `classify.py` / `assertions.py` written by Claude | Autonomous workflow |
+| 2026-10-15 | M2 | Not done: Wireshark lab, TLS-wrong-hostname test | Lab is manual learning; hostname-mismatch needs the M3 pinning spike (trustme CA injected) |
 
 **MVP = M0–M10.** Order rationale: the riskiest technical unknowns (phase timing, IP pinning, SKIP LOCKED) come *before* auth and UI, so you discover problems while scope is still cheap to change. Auth arrives in M6; until then a single seeded dev user owns everything.
 

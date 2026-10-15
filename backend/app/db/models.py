@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -13,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import INET, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -52,6 +53,11 @@ class Monitor(Base):
     method: Mapped[str] = mapped_column(Text, server_default="GET")
     interval_seconds: Mapped[int] = mapped_column(server_default="60")
     timeout_ms: Mapped[int] = mapped_column(server_default="5000")
+    headers: Mapped[dict[str, str]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    assertions: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    degraded_ms: Mapped[int | None]
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
 
 
@@ -93,7 +99,22 @@ class CheckRun(Base):
     outcome: Mapped[str] = mapped_column(Text)
     failure_class: Mapped[str | None] = mapped_column(Text)
     http_status: Mapped[int | None] = mapped_column(SmallInteger)
+    dns_ms: Mapped[int | None]
+    connect_ms: Mapped[int | None]
+    tls_ms: Mapped[int | None]
+    ttfb_ms: Mapped[int | None]
     total_ms: Mapped[int | None]
+    resolved_ip: Mapped[str | None] = mapped_column(INET)
+    attempt_count: Mapped[int] = mapped_column(SmallInteger, server_default="1")
+    attempts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    assertion_results: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb")
+    )
+    response_headers: Mapped[dict[str, str] | None] = mapped_column(JSONB)
+    response_snippet: Mapped[str | None] = mapped_column(Text)
+    body_truncated: Mapped[bool] = mapped_column(server_default=text("false"))
     error_detail: Mapped[str | None] = mapped_column(Text)
     worker_id: Mapped[str] = mapped_column(Text)
     trigger: Mapped[str] = mapped_column(Text, server_default="schedule")
