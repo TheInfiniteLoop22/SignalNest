@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.api import auth, incidents, monitors, system
+from app.api.csrf import OriginCheckMiddleware
 from app.api.errors import install_error_handlers
 from app.config import get_settings
 from app.db.session import SessionLocal
@@ -67,6 +68,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         poll_interval_s=cfg.poll_interval_ms / 1000,
         claim_batch_max=cfg.claim_batch_max,
         shutdown_grace_s=cfg.shutdown_grace_s,
+        alert_max_attempts=cfg.alert_max_attempts,
+        retention_days=cfg.retention_days,
+        maintenance_interval_s=cfg.maintenance_interval_s,
     )
     task = asyncio.create_task(worker.run())
     try:
@@ -89,6 +93,7 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json" if settings.expose_docs else None,
     )
     install_error_handlers(app)
+    app.add_middleware(OriginCheckMiddleware, trusted_origins=settings.trusted_origins)
     app.add_middleware(SecurityHeadersMiddleware)
     api = APIRouter(prefix="/api/v1")
     for module in (auth, monitors, incidents):

@@ -29,6 +29,9 @@ async def amain() -> None:
         poll_interval_s=cfg.poll_interval_ms / 1000,
         claim_batch_max=cfg.claim_batch_max,
         shutdown_grace_s=cfg.shutdown_grace_s,
+        alert_max_attempts=cfg.alert_max_attempts,
+        retention_days=cfg.retention_days,
+        maintenance_interval_s=cfg.maintenance_interval_s,
     )
     _install_signal_handlers(worker, asyncio.get_running_loop())
     await worker.run()

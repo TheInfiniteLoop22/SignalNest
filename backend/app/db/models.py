@@ -13,7 +13,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import BYTEA, INET, TIMESTAMP, UUID
+from sqlalchemy.dialects.postgresql import BYTEA, INET, JSONB, TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -72,6 +72,7 @@ class Monitor(Base):
     expected_status: Mapped[int | None]
     body_contains: Mapped[str | None] = mapped_column(Text)
     failure_threshold: Mapped[int] = mapped_column(SmallInteger, server_default="3")
+    webhook_url: Mapped[str | None] = mapped_column(Text)
 
     # scheduler: a monitor is due when next_run_at has passed and nobody holds the lease
     next_run_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
@@ -89,6 +90,7 @@ class CheckRun(Base):
         CheckConstraint("outcome IN ('PASS','FAIL')", name="outcome"),
         CheckConstraint("(failure_class IS NULL) = (outcome = 'PASS')", name="failure_class"),
         Index("ix_check_runs_monitor_started", "monitor_id", text("started_at DESC")),
+        Index("ix_check_runs_started_at", "started_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -127,3 +129,41 @@ class Incident(Base):
     opened_at: Mapped[datetime] = mapped_column(TZ)
     resolved_at: Mapped[datetime | None] = mapped_column(TZ)
     failure_class: Mapped[str] = mapped_column(Text)
+
+
+class LoginFailure(Base):
+    """A failed login for an email; recent rows drive the login throttle."""
+
+    __tablename__ = "login_failures"
+    __table_args__ = (Index("ix_login_failures_email_failed", "email", "failed_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    email: Mapped[str] = mapped_column(Text)
+    failed_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+
+
+class Alert(Base):
+    """Outbox row: a webhook notification waiting to be delivered (or already done)."""
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('OPEN','RESOLVE')", name="kind"),
+        CheckConstraint("status IN ('PENDING','DELIVERED','FAILED')", name="status"),
+        Index(
+            "ix_alerts_pending",
+            "next_attempt_at",
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        Index("ix_alerts_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    monitor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("monitors.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    status: Mapped[str] = mapped_column(Text, server_default="PENDING")
+    attempts: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(TZ, server_default=func.now())
+    locked_until: Mapped[datetime | None] = mapped_column(TZ)
+    last_error: Mapped[str | None] = mapped_column(Text)

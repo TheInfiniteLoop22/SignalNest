@@ -12,6 +12,7 @@ from app.api.deps import (
     SettingsDep,
 )
 from app.api.errors import Problem
+from app.api.ratelimit import clear_login_failures, ensure_login_allowed, record_login_failure
 from app.api.schemas import Credentials, RegisterIn, UserOut
 from app.db.models import Session, User
 from app.security import hash_password, new_session_token, token_hash, verify_password
@@ -42,12 +43,20 @@ async def login(
     session: DbSession,
     settings: SettingsDep,
 ) -> None:
+    await ensure_login_allowed(
+        session,
+        body.email,
+        max_failures=settings.login_max_failures,
+        window_s=settings.login_window_s,
+    )
     user = await session.scalar(select(User).where(User.email == body.email))
     ok = await asyncio.to_thread(
         verify_password, body.password, user.password_hash if user else None
     )
     if user is None or not ok:
+        await record_login_failure(session, body.email, window_s=settings.login_window_s)
         raise Problem(401, "invalid-credentials", "invalid credentials")
+    await clear_login_failures(session, body.email)
 
     token = new_session_token()
     now = datetime.now(UTC)

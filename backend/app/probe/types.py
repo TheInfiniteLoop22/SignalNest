@@ -28,6 +28,9 @@ class ProbeRequest:
     timeout_ms: int = 5000
     expected_status: int | None = None  # None: any 2xx or 3xx
     body_contains: str | None = None
+    method: str = "GET"
+    headers: tuple[tuple[str, str], ...] = ()
+    body: bytes | None = None  # request body, e.g. a webhook payload
 
 
 @dataclass(frozen=True)

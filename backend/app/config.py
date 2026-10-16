@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     expose_docs: bool = True
     static_dir: str = ""  # built SPA; empty disables static serving (dev uses Vite)
 
+    # login throttle: this many failed logins for one email within the window locks it
+    login_max_failures: int = 5
+    login_window_s: int = 900
+    # browsers may send state-changing requests from these extra origins (comma separated);
+    # the app's own origin is always allowed
+    trusted_origins: str = ""
+
+    # data lifecycle and alerting
+    retention_days: int = 30
+    maintenance_interval_s: int = 3600
+    alert_max_attempts: int = 5
+
     # limits
     max_monitors_per_user: int = 50
     min_interval_s: int = 30  # tests lower this

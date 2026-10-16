@@ -11,9 +11,12 @@ TX2 (`record_result`): store the run, advance the failure counter, open or resol
 incident, and schedule the next run, all atomically.
 """
 
+import json
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +63,37 @@ async def claim_due(session: AsyncSession, *, limit: int) -> list[Claim]:
     return claims
 
 
+async def enqueue_alert(
+    session: AsyncSession,
+    claim: Claim,
+    monitor: Mapping[Any, Any],
+    action: Action,
+    result: ProbeResult,
+) -> None:
+    """Outbox write: the alert row commits atomically with the incident change, so a crash can
+    neither lose a notification nor send one for an incident that was never recorded."""
+    opened = action is Action.OPEN
+    reason = result.failure_class.value if result.failure_class else "ERROR"
+    message = (
+        f"SignalNest: {monitor['name']} is DOWN ({reason})"
+        if opened
+        else f"SignalNest: {monitor['name']} has recovered"
+    )
+    payload = {
+        "event": "incident.opened" if opened else "incident.resolved",
+        "text": message,  # Slack reads "text"
+        "content": message,  # Discord reads "content"
+        "monitor": {"id": str(claim.id), "name": monitor["name"], "url": monitor["url"]},
+        "failure_class": reason if opened else None,
+        "detail": result.detail if opened else None,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    await session.execute(
+        text("INSERT INTO alerts (monitor_id, kind, payload) VALUES (:m, :k, CAST(:p AS jsonb))"),
+        {"m": claim.id, "k": "OPEN" if opened else "RESOLVE", "p": json.dumps(payload)},
+    )
+
+
 async def record_result(
     session: AsyncSession, claim: Claim, result: ProbeResult, *, started_at: datetime
 ) -> bool:
@@ -70,7 +104,8 @@ async def record_result(
             await session.execute(
                 text(
                     """
-                    SELECT status, consecutive_failures, failure_threshold, interval_seconds
+                    SELECT status, consecutive_failures, failure_threshold, interval_seconds,
+                           name, url, webhook_url
                     FROM monitors WHERE id = :id FOR UPDATE
                     """
                 ),
@@ -138,6 +173,9 @@ async def record_result(
             ),
             {"m": claim.id},
         )
+
+    if row["webhook_url"] and decision.action is not Action.NONE:
+        await enqueue_alert(session, claim, row, decision.action, result)
 
     await session.execute(
         text(

@@ -146,9 +146,10 @@ async def run_probe(
                 verify=ssl_context or _default_ssl_context(),
             ) as client:
                 async with client.stream(
-                    "GET",
+                    req.method,
                     pinned,
-                    headers={"Host": f"{host_header}{port}"},
+                    headers={**dict(req.headers), "Host": f"{host_header}{port}"},
+                    content=req.body,
                     extensions={"trace": timings, "sni_hostname": host},
                 ) as resp:
                     status = resp.status_code

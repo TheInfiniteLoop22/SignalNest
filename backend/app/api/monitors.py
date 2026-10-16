@@ -103,6 +103,8 @@ async def create_monitor(
 ) -> MonitorOut:
     _check_interval(body.interval_seconds, settings)
     await check_target(body.url, policy, resolver)
+    if body.webhook_url:
+        await check_target(body.webhook_url, policy, resolver)
 
     count = await session.scalar(
         select(func.count()).select_from(Monitor).where(Monitor.owner_id == user.id)
@@ -144,6 +146,8 @@ async def patch_monitor(
 
     if "url" in changes:
         await check_target(changes["url"], policy, resolver)
+    if changes.get("webhook_url"):
+        await check_target(changes["webhook_url"], policy, resolver)
     if "interval_seconds" in changes:
         _check_interval(changes["interval_seconds"], settings)
         # Pull the next run in if the new interval is shorter than the time left.

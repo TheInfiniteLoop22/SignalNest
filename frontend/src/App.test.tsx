@@ -44,6 +44,7 @@ const monitor = {
   expected_status: null,
   body_contains: null,
   failure_threshold: 3,
+  webhook_url: null,
   status: "DOWN",
   last_checked_at: "2026-10-15T10:00:00Z",
   created_at: "2026-10-15T09:00:00Z",

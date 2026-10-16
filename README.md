@@ -30,6 +30,11 @@ engine at its core.
   dropped packet does not page anyone.
 - It resolves on the first passing check, and its start time is backdated to the first failure.
 - At most one open incident per monitor, guaranteed by a database index.
+- **Webhook alerts.** Set an alert webhook on a monitor and it receives a JSON `POST` when an
+  incident opens and when it resolves (Slack and Discord incoming webhooks work as-is). Alerts
+  are written in the same transaction as the incident change (a transactional outbox) and
+  delivered by the worker with exponential backoff, so a crash or a down receiver never loses one.
+  Webhook URLs get the same SSRF protection as monitored URLs.
 
 **Security**
 - **SSRF-safe probing.** URLs are validated, every resolved address must be public, and the
@@ -37,11 +42,19 @@ engine at its core.
   addresses, loopback, private ranges and non-standard ports are refused.
 - Passwords hashed with argon2id; server-side sessions in an `HttpOnly` cookie, stored hashed.
 - Every query on user data is scoped by owner; other users' resources return 404.
+- **Login throttling.** After 5 failed logins for an email in 15 minutes, further attempts get
+  `429` with `Retry-After`, even with the right password. Unknown emails are throttled the same
+  way, so responses never reveal which accounts exist. The counters live in Postgres, so the
+  limit holds across processes.
+- **Cross-origin guard.** State-changing API requests whose `Origin` is not the app's own are
+  refused with `403`, on top of `SameSite=Lax` cookies.
 
 **Operations**
 - Postgres is the job queue (`FOR UPDATE SKIP LOCKED` with a lease), so any number of workers can
   run without coordination, and a crashed worker's monitors are picked up again automatically.
 - Graceful shutdown: in-flight probes finish before a worker exits.
+- Data retention: the worker deletes check history older than `RETENTION_DAYS` (default 30) in
+  small batches, along with finished alerts, expired sessions and stale login failures.
 - RFC 9457 `application/problem+json` errors, `/healthz` and `/readyz`, interactive API docs at
   `/api/docs`.
 
@@ -125,6 +138,10 @@ Environment variables (see [`.env.example`](.env.example)):
 | `MIN_INTERVAL_S` | `30` | Smallest allowed check interval |
 | `MAX_MONITORS_PER_USER` | `50` | Per-account monitor cap |
 | `ALLOW_REGISTRATION` | `true` | Allow new sign-ups |
+| `RETENTION_DAYS` | `30` | How long check history is kept |
+| `LOGIN_MAX_FAILURES` / `LOGIN_WINDOW_S` | `5` / `900` | Failed logins per email before a lock, and the window they count in |
+| `ALERT_MAX_ATTEMPTS` | `5` | Delivery attempts per webhook alert before it is marked failed |
+| `TRUSTED_ORIGINS` | empty | Extra browser origins allowed to make state-changing requests |
 | `COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
 | `ALLOWED_PORTS` | `80,443,8000-8999` | Target ports probes may use |
 | `SSRF_ALLOW_PRIVATE_CIDRS` | empty | **Dev only.** Lets probes reach private ranges, such as Faultline in Docker |
@@ -136,7 +153,7 @@ Interactive docs are served at `/api/docs`.
 | Method and path | Purpose |
 |---|---|
 | `POST /api/v1/auth/register`, `/login`, `/logout` · `GET /auth/me` | Accounts and sessions |
-| `GET`, `POST /api/v1/monitors` | List and create monitors (with 24 h uptime) |
+| `GET`, `POST /api/v1/monitors` | List and create monitors (with 24 h uptime; optional `webhook_url`) |
 | `GET`, `PATCH`, `DELETE /api/v1/monitors/{id}` | Read, update, delete one monitor |
 | `GET /api/v1/monitors/{id}/runs?limit=50` | Recent checks, newest first |
 | `GET /api/v1/incidents?status=OPEN` | Incidents, open first |
@@ -188,7 +205,7 @@ cd frontend
 npm ci && npx vitest run && npm run build
 ```
 
-The suite has 143 tests that need no database (`uv run pytest -m "not integration"`) and 39 integration tests that need Postgres. Tests never touch the public internet: the probe engine is tested against Faultline and local
+The suite has 148 tests that need no database (`uv run pytest -m "not integration"`) and 51 integration tests that need Postgres. Tests never touch the public internet: the probe engine is tested against Faultline and local
 sockets that can hang, reset, drip bytes or serve an untrusted certificate.
 
 ```
@@ -205,8 +222,9 @@ screenshots/             images used in this README
 ## Limitations
 
 Single vantage point and sampled availability (a check every N seconds, not continuous
-observation). GET requests only, redirects are not followed, no custom request headers, no
-notifications, and check history is not pruned.
+observation). GET requests only, redirects are not followed, no custom request headers. Alerts
+are webhooks only (no email). The login lock is per email, so someone who knows an address can
+lock that account out for up to 15 minutes.
 
 ## License
 

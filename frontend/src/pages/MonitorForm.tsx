@@ -13,6 +13,7 @@ const DEFAULTS: MonitorInput = {
   expected_status: null,
   body_contains: null,
   failure_threshold: 3,
+  webhook_url: null,
 };
 
 export function MonitorFormPage() {
@@ -34,6 +35,7 @@ function FormInner({ id, initial }: { id: string | undefined; initial: MonitorIn
     expected_status: initial.expected_status,
     body_contains: initial.body_contains,
     failure_threshold: initial.failure_threshold,
+    webhook_url: initial.webhook_url,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -122,6 +124,18 @@ function FormInner({ id, initial }: { id: string | undefined; initial: MonitorIn
             />
           </label>
         </div>
+        <label className="field">
+          <span>Alert webhook</span>
+          <input
+            value={form.webhook_url ?? ""}
+            onChange={(e) => set("webhook_url", e.target.value || null)}
+            placeholder="https://hooks.slack.com/services/..."
+          />
+          <span className="muted small">
+            optional; receives a JSON POST when an incident opens and when it resolves (Slack and
+            Discord incoming webhooks work as-is)
+          </span>
+        </label>
 
         {error && (
           <p role="alert" className="field-error">

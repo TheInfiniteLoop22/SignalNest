@@ -48,6 +48,7 @@ class MonitorCreate(BaseModel):
     expected_status: int | None = Field(default=None, ge=100, le=599)
     body_contains: str | None = Field(default=None, min_length=1, max_length=200)
     failure_threshold: int = Field(default=3, ge=1, le=10)
+    webhook_url: str | None = Field(default=None, min_length=1, max_length=2048)
 
 
 class MonitorPatch(BaseModel):
@@ -60,6 +61,7 @@ class MonitorPatch(BaseModel):
     expected_status: int | None = Field(default=None, ge=100, le=599)
     body_contains: str | None = Field(default=None, min_length=1, max_length=200)
     failure_threshold: int | None = Field(default=None, ge=1, le=10)
+    webhook_url: str | None = Field(default=None, min_length=1, max_length=2048)
 
 
 class MonitorOut(BaseModel):
@@ -73,6 +75,7 @@ class MonitorOut(BaseModel):
     expected_status: int | None
     body_contains: str | None
     failure_threshold: int
+    webhook_url: str | None
     status: Literal["UNKNOWN", "UP", "DOWN"]
     last_checked_at: datetime | None
     created_at: datetime

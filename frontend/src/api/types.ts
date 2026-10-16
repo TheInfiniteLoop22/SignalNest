@@ -14,6 +14,7 @@ export interface Monitor {
   expected_status: number | null;
   body_contains: string | null;
   failure_threshold: number;
+  webhook_url: string | null;
   status: Status;
   last_checked_at: string | null;
   created_at: string;
@@ -29,6 +30,7 @@ export type MonitorInput = Pick<
   | "expected_status"
   | "body_contains"
   | "failure_threshold"
+  | "webhook_url"
 >;
 
 export interface Run {
