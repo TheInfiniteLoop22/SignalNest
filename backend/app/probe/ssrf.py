@@ -1,4 +1,4 @@
-"""SSRF guard: URL validation + IP classification (docs/09_SECURITY.md section 3).
+"""SSRF guard: URL validation + IP classification.
 
 Pure functions and a small policy object; no I/O. The engine resolves the hostname, asks
 the policy about *every* resolved address, then connects to one validated IP (pinning).

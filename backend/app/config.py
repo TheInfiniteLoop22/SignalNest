@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     claim_batch_max: int = 50
     shutdown_grace_s: int = 20
 
-    # SSRF guard (docs/09). The CIDR override is for dev/test only; keep it empty otherwise.
+    # SSRF guard. The CIDR override is for dev/test only; keep it empty otherwise.
     allowed_ports: str = "80,443,8000-8999"
     ssrf_allow_private_cidrs: str = ""
     allowed_hosts: str = ""

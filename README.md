@@ -11,7 +11,9 @@ engine at its core.
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-![Monitor detail](docs/images/monitor-detail.png)
+![Monitor detail](screenshots/monitor-detail.png)
+
+**Live demo:** https://signalnest-1u4q.onrender.com (free plan, so the first request after idle can take about a minute while it wakes).
 
 ## Features
 
@@ -47,11 +49,11 @@ engine at its core.
 
 | Monitors | Incidents |
 |---|---|
-| ![Monitors](docs/images/monitors.png) | ![Incidents](docs/images/incidents.png) |
+| ![Monitors](screenshots/monitors.png) | ![Incidents](screenshots/incidents.png) |
 
 | SSRF protection in the form | Sign in |
 |---|---|
-| ![SSRF blocked](docs/images/ssrf-blocked.png) | ![Login](docs/images/login.png) |
+| ![SSRF blocked](screenshots/ssrf-blocked.png) | ![Login](screenshots/login.png) |
 
 ## Quick start
 
@@ -152,9 +154,24 @@ flowchart LR
 
 The worker loops: **claim** due monitors (transaction 1), **probe** them with no transaction open,
 then **record** the result, update the failure counter, open or resolve the incident and schedule
-the next run (transaction 2). More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), with the
-reasoning behind the main choices in [docs/DECISIONS.md](docs/DECISIONS.md) and a short
-[Design Q&A](docs/DESIGN_QA.md).
+the next run (transaction 2).
+
+### Design decisions
+
+| Decision | Why | Trade-off |
+|---|---|---|
+| **Postgres is the job queue** (`FOR UPDATE SKIP LOCKED`), no Redis or Celery | Data and queue share one transactional system, so "record the result and schedule the next run" is a single atomic commit. | Fine for tens of probes per second; a broker would make sense beyond that. |
+| **Lease column** (`locked_until = now() + 2 x timeout + 15 s`) | A crashed worker's monitors are picked up again when the lease expires. One column, one comparison. | Rarely, a monitor is probed twice. Harmless for a monitor; avoiding it needs fencing tokens. |
+| **No transaction across the probe** | A transaction held open while waiting on a remote server would pin a pooled connection and row locks. | Two short transactions instead of one. |
+| **Connection pinned to the validated IP** | Validating a hostname and letting the client resolve it again leaves a DNS-rebinding window. `Host` and TLS SNI still carry the hostname. | Redirects are not followed. |
+| **Incident after N consecutive failures** (default 3) | One dropped packet should not be an incident. | A real outage is noticed N-1 probes late; a flapping service can flap incidents. |
+| **Scheduler state on the `monitors` row** | One table and one row lock per monitor; config edits and worker updates touch different columns. | The table mixes configuration and bookkeeping. |
+| **Server-side sessions, not JWTs** | Logout and expiry are real: delete the row. Only a hash of the token is stored. | One database lookup per request. |
+| **Tests probe a real local server** (Faultline) instead of mocks | Failure classification depends on real socket behaviour: hangs, resets, bad certificates. | Slower than mocks, but closer to production. |
+
+Failure handling: a worker killed mid-probe writes nothing and its lease expires; a database
+outage makes the worker log, back off and retry; a monitor deleted while it is being probed is
+skipped when the result arrives; two workers polling at once receive disjoint sets of monitors.
 
 **Stack:** Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, httpx, PostgreSQL 16, React 18,
 TypeScript, Vite, TanStack Query.
@@ -171,7 +188,7 @@ cd frontend
 npm ci && npx vitest run && npm run build
 ```
 
-Tests never touch the public internet: the probe engine is tested against Faultline and local
+The suite has 143 tests that need no database (`uv run pytest -m "not integration"`) and 39 integration tests that need Postgres. Tests never touch the public internet: the probe engine is tested against Faultline and local
 sockets that can hang, reset, drip bytes or serve an untrusted certificate.
 
 ```
@@ -182,7 +199,7 @@ backend/app/api/         auth, monitors, incidents
 backend/migrations/      Alembic migration
 faultline/               the breakable demo API, also used by the tests
 frontend/                React + TypeScript UI
-docs/                    architecture, decisions, design Q&A
+screenshots/             images used in this README
 ```
 
 ## Limitations
