@@ -43,42 +43,82 @@ export function LoginPage({ expired = false }: { expired?: boolean }) {
   }
 
   return (
-    <main className="auth">
-      <h1>SignalNest</h1>
-      {expired && (
-        <p role="status" className="notice">
-          Your session expired. Please sign in again.
+    <div className="auth-shell">
+      <aside className="auth-hero" aria-hidden="true">
+        <span className="brand">
+          <img src="/logo.svg" alt="" />
+          SignalNest
+        </span>
+        <h2>Know the moment your service goes down.</h2>
+        <p>
+          Watch your endpoints around the clock, get an incident the moment checks start failing, and see exactly
+          where the time went.
         </p>
-      )}
-      <form onSubmit={(e) => void submit(e)} aria-label={mode === "login" ? "Sign in" : "Create account"}>
-        <label>
-          Email
-          <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={mode === "register" ? 12 : 1}
-            required
-          />
-        </label>
-        {mode === "register" && <p className="muted">At least 12 characters.</p>}
-        {error && (
-          <p role="alert" className="field-error">
-            {error}
+        <img className="hero" src="/hero.svg" alt="" />
+        <ul>
+          <li>HTTP checks with DNS, connect, TLS and first-byte timings</li>
+          <li>Automatic incidents with webhook alerts to Slack or Discord</li>
+          <li>Built-in protection against SSRF and brute-force logins</li>
+        </ul>
+      </aside>
+      <main className="auth">
+        <div className="auth-card">
+          <span className="brand auth-mobile-brand">
+            <img src="/logo.svg" alt="" />
+            SignalNest
+          </span>
+          <div>
+            <h1>{mode === "login" ? "Welcome back" : "Create your account"}</h1>
+            <p className="subtitle">
+              {mode === "login" ? "Sign in to see how your services are doing." : "Start monitoring in under a minute."}
+            </p>
+          </div>
+          {expired && (
+            <p role="status" className="notice">
+              Your session expired. Please sign in again.
+            </p>
+          )}
+          <form onSubmit={(e) => void submit(e)} aria-label={mode === "login" ? "Sign in" : "Create account"}>
+            <label>
+              Email
+              <input
+                type="email"
+                autoComplete="username"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={mode === "register" ? 12 : 1}
+                required
+              />
+            </label>
+            {mode === "register" && <p className="muted small">At least 12 characters.</p>}
+            {error && (
+              <p role="alert" className="field-error">
+                {error}
+              </p>
+            )}
+            <button type="submit" disabled={busy}>
+              {mode === "login" ? "Sign in" : "Create account"}
+            </button>
+          </form>
+          <p className="auth-switch">
+            {mode === "login" ? "New here? " : "Already registered? "}
+            <button className="link" onClick={() => setMode(mode === "login" ? "register" : "login")}>
+              {mode === "login" ? "Create an account" : "I already have an account"}
+            </button>
           </p>
-        )}
-        <button type="submit" disabled={busy}>
-          {mode === "login" ? "Sign in" : "Create account"}
-        </button>
-      </form>
-      <button className="link" onClick={() => setMode(mode === "login" ? "register" : "login")}>
-        {mode === "login" ? "Create an account" : "I already have an account"}
-      </button>
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }

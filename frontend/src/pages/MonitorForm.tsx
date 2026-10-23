@@ -57,8 +57,10 @@ function FormInner({ id, initial }: { id: string | undefined; initial: MonitorIn
 
   return (
     <>
-      <h1>{id ? "Edit monitor" : "New monitor"}</h1>
-      <form onSubmit={(e) => void onSubmit(e)} className="form">
+      <div className="page-head">
+        <h1>{id ? "Edit monitor" : "New monitor"}</h1>
+      </div>
+      <form onSubmit={(e) => void onSubmit(e)} className="form card form-card">
         <label className="field">
           <span>Name</span>
           <input value={form.name} onChange={(e) => set("name", e.target.value)} required maxLength={100} />

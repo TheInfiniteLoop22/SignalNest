@@ -21,7 +21,10 @@ export function Layout() {
   return (
     <>
       <header className="topbar">
-        <span className="brand">SignalNest</span>
+        <NavLink to="/" className="brand" aria-label="SignalNest home">
+          <img src="/logo.svg" alt="" />
+          SignalNest
+        </NavLink>
         <nav aria-label="Main">
           <NavLink to="/" end>
             Monitors
@@ -29,16 +32,22 @@ export function Layout() {
           <NavLink to="/incidents">Incidents</NavLink>
         </nav>
         <span className="spacer" />
-        <span className="muted" data-testid="user-email">
-          {user?.email}
+        <span className="user-chip">
+          <span className="avatar" aria-hidden="true">
+            {user?.email.charAt(0)}
+          </span>
+          <span className="muted" data-testid="user-email">
+            {user?.email}
+          </span>
         </span>
-        <button className="link" onClick={() => void logout()}>
+        <button className="secondary" onClick={() => void logout()}>
           Log out
         </button>
       </header>
       <main className="page">
         <Outlet />
       </main>
+      <footer className="footer">SignalNest · uptime monitoring and incident tracking</footer>
     </>
   );
 }

@@ -13,7 +13,10 @@ export function MonitorsPage() {
   return (
     <>
       <div className="page-head">
-        <h1>Monitors</h1>
+        <div>
+          <h1>Monitors</h1>
+          <p className="subtitle">Live status of everything you watch. Updates every 10 seconds.</p>
+        </div>
         <Link className="button" to="/monitors/new">
           New monitor
         </Link>
@@ -21,12 +24,36 @@ export function MonitorsPage() {
 
       {monitors.length === 0 ? (
         <div className="empty">
+          <img src="/empty.svg" alt="" />
           <h2>No monitors yet</h2>
+          <p>Add an endpoint and SignalNest will start checking it right away.</p>
           <p>
-            <Link to="/monitors/new">Create your first monitor</Link>.
+            <Link className="button" to="/monitors/new">
+              Create your first monitor
+            </Link>
           </p>
         </div>
       ) : (
+        <>
+          <div className="stats">
+            <div className="stat">
+              <span className="stat-label">Monitors</span>
+              <span className="stat-value">{monitors.length}</span>
+            </div>
+            <div className="stat ok">
+              <span className="stat-label">Up</span>
+              <span className="stat-value">{monitors.filter((m) => m.status === "UP").length}</span>
+            </div>
+            <div className="stat bad">
+              <span className="stat-label">Down</span>
+              <span className="stat-value">{monitors.filter((m) => m.status === "DOWN").length}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">Pending</span>
+              <span className="stat-value">{monitors.filter((m) => m.status === "UNKNOWN").length}</span>
+            </div>
+          </div>
+          <div className="table-wrap">
         <table className="data">
           <thead>
             <tr>
@@ -54,6 +81,8 @@ export function MonitorsPage() {
             ))}
           </tbody>
         </table>
+          </div>
+        </>
       )}
     </>
   );

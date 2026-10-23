@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useDeleteMonitor, useMonitor, useRuns } from "../api/hooks";
 import { Badge } from "../components/Badge";
 import { ErrorBox, Loading } from "../components/Common";
+import { ResponseChart } from "../components/ResponseChart";
 import { formatMs, formatPct, localTime } from "../lib/format";
 
 export function MonitorDetailPage() {
@@ -28,14 +29,34 @@ export function MonitorDetailPage() {
 
   return (
     <>
+      <div className="breadcrumb">
+        <Link to="/">← All monitors</Link>
+      </div>
       <div className="page-head">
         <h1>{m.name}</h1>
         <Badge kind={m.status} />
       </div>
-      <p className="muted">
-        <code>{m.url}</code> · every {m.interval_seconds}s · timeout {formatMs(m.timeout_ms)} · uptime
-        (24 h) {formatPct(m.uptime_24h_pct)}
+      <p className="meta">
+        <code>{m.url}</code>
       </p>
+      <div className="stats">
+        <div className="stat">
+          <span className="stat-label">Uptime (24 h)</span>
+          <span className="stat-value">{formatPct(m.uptime_24h_pct)}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Check every</span>
+          <span className="stat-value">{m.interval_seconds}s</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Timeout</span>
+          <span className="stat-value">{formatMs(m.timeout_ms)}</span>
+        </div>
+        <div className="stat">
+          <span className="stat-label">Last check</span>
+          <span className="stat-value small">{m.last_checked_at ? localTime(m.last_checked_at) : "not yet"}</span>
+        </div>
+      </div>
 
       {del.error && <ErrorBox error={del.error} />}
 
@@ -48,12 +69,20 @@ export function MonitorDetailPage() {
         </button>
       </div>
 
+      {runs.data && runs.data.length > 1 && (
+        <section className="card">
+          <h2>Response time</h2>
+          <ResponseChart runs={runs.data} />
+        </section>
+      )}
+
       <section className="card">
         <h2>Recent runs</h2>
         {runs.isLoading && <Loading />}
         {runs.error && <ErrorBox error={runs.error} />}
         {runs.data && runs.data.length === 0 && <p className="muted">No runs yet.</p>}
         {runs.data && runs.data.length > 0 && (
+          <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
@@ -86,6 +115,7 @@ export function MonitorDetailPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </>

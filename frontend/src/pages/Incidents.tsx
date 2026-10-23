@@ -9,12 +9,22 @@ export function IncidentsPage() {
   return (
     <>
       <div className="page-head">
-        <h1>Incidents</h1>
+        <div>
+          <h1>Incidents</h1>
+          <p className="subtitle">Opened automatically when checks keep failing, resolved when they recover.</p>
+        </div>
       </div>
       {isLoading && <Loading />}
       {error && <ErrorBox error={error} />}
-      {data && data.length === 0 && <p className="muted">No incidents. That is the good outcome.</p>}
+      {data && data.length === 0 && (
+        <div className="empty">
+          <img src="/ok.svg" alt="" />
+          <h2>No incidents</h2>
+          <p>No incidents. That is the good outcome.</p>
+        </div>
+      )}
       {data && data.length > 0 && (
+        <div className="table-wrap">
         <table className="data">
           <thead>
             <tr>
@@ -41,6 +51,7 @@ export function IncidentsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
