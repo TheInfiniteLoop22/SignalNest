@@ -1,0 +1,56 @@
+[project]
+name = "signalnest"
+version = "0.0.0"
+description = "Small self-hosted uptime monitor"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.20.0",
+    "argon2-cffi>=25.1.0",
+    "asyncpg>=0.32.0",
+    "fastapi>=0.143.2",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.16.0",
+    "sqlalchemy[asyncio]>=2.1.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pytest-asyncio>=1.4.0",
+    "trustme>=1.2.1",
+    "pytest-cov>=7.1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend", "."]
+asyncio_mode = "auto"
+markers = ["integration: needs real Postgres (docker compose up db)"]
+
+[tool.ruff]
+line-length = 100
+src = ["backend"]
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "backend"
+explicit_package_bases = true
+
+[tool.coverage.run]
+source = ["backend/app"]
+# SQLAlchemy's async layer runs sync code in greenlets; without this, code that awaits the
+# database is under-reported.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+omit = ["backend/app/cli.py"]  # process entrypoint

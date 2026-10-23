@@ -1,0 +1,38 @@
+# Dev stack: a database, the app (API + UI + worker in one process) and Faultline, a fake site
+# you can break on purpose.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-signalnest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-signalnest}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: { context: ., target: app }
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-signalnest}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-signalnest}
+      # Dev only: lets probes reach Faultline on the docker network. Must be empty in prod.
+      SSRF_ALLOW_PRIVATE_CIDRS: 172.16.0.0/12
+    ports:
+      - "8000:8000"
+    depends_on:
+      db: { condition: service_healthy }
+    stop_grace_period: 30s
+
+  faultline:
+    build: { context: ., target: faultline }
+    ports:
+      - "8001:8001"
+
+volumes:
+  pgdata:
